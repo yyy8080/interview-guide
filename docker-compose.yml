@@ -75,8 +75,8 @@ services:
     # 启动命令：指定数据目录和控制台地址
     command: server /data --console-address ":9001"
     environment:
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: minioadmin
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
     ports:
       - "9000:9000"
       - "9001:9001"
@@ -104,10 +104,13 @@ services:
     depends_on:
       minio:
         condition: service_healthy # 必须等待 MinIO 服务健康（不仅仅是启动）
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
     entrypoint: >
       /bin/sh -c "
       set -eu;
-      /usr/bin/mc alias set myminio http://minio:9000 minioadmin minioadmin &&
+      /usr/bin/mc alias set myminio http://minio:9000 \"$$MINIO_ROOT_USER\" \"$$MINIO_ROOT_PASSWORD\" &&
       (
         /usr/bin/mc ls myminio/interview-guide > /dev/null 2>&1 ||
         /usr/bin/mc mb myminio/interview-guide
@@ -154,8 +157,8 @@ services:
       # === 对象存储配置 ===
       # 注意：后端在容器内访问 MinIO，使用 http://minio:9000
       APP_STORAGE_ENDPOINT: http://minio:9000
-      APP_STORAGE_ACCESS_KEY: minioadmin
-      APP_STORAGE_SECRET_KEY: minioadmin
+      APP_STORAGE_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
+      APP_STORAGE_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
       APP_STORAGE_BUCKET: interview-guide
       APP_STORAGE_REGION: us-east-1
       
@@ -164,6 +167,12 @@ services:
       AI_BAILIAN_API_KEY: ${AI_BAILIAN_API_KEY}
       AI_MODEL: ${AI_MODEL:-qwen3.5-flash}
       APP_AI_CONFIG_ENCRYPTION_KEY: ${APP_AI_CONFIG_ENCRYPTION_KEY}
+      PROVIDER_KIMI_API_KEY: ${PROVIDER_KIMI_API_KEY:-}
+      PROVIDER_KIMI_MODEL: ${PROVIDER_KIMI_MODEL:-kimi-latest}
+      PROVIDER_DEEPSEEK_API_KEY: ${PROVIDER_DEEPSEEK_API_KEY:-}
+      PROVIDER_DEEPSEEK_MODEL: ${PROVIDER_DEEPSEEK_MODEL:-deepseek-v4-flash}
+      PROVIDER_GLM_API_KEY: ${PROVIDER_GLM_API_KEY:-}
+      PROVIDER_GLM_MODEL: ${PROVIDER_GLM_MODEL:-glm-5}
 
       # === 面试参数配置 ===
       APP_INTERVIEW_FOLLOW_UP_COUNT: ${APP_INTERVIEW_FOLLOW_UP_COUNT:-1}
@@ -171,11 +180,19 @@ services:
 
       # === HR 管理后台认证与企业招聘配置 ===
       APP_SECURITY_JWT_SECRET: ${APP_SECURITY_JWT_SECRET:-}
+      APP_SECURITY_TOKEN_TTL: ${APP_SECURITY_TOKEN_TTL:-8h}
       APP_SECURITY_INIT_ADMIN_USERNAME: ${APP_SECURITY_INIT_ADMIN_USERNAME:-admin}
       APP_SECURITY_INIT_ADMIN_PASSWORD: ${APP_SECURITY_INIT_ADMIN_PASSWORD:-}
       APP_SECURITY_PUBLIC_API_DOCS: ${APP_SECURITY_PUBLIC_API_DOCS:-false}
       APP_RECRUITMENT_PORTAL_BASE_URL: ${APP_RECRUITMENT_PORTAL_BASE_URL:-http://localhost}
       APP_RECRUITMENT_COMPANY_NAME: ${APP_RECRUITMENT_COMPANY_NAME:-招聘团队}
+      APP_RECRUITMENT_INVITE_EXPIRE_DAYS: ${APP_RECRUITMENT_INVITE_EXPIRE_DAYS:-7}
+      APP_RECRUITMENT_OTP_LOG_CODE: ${APP_RECRUITMENT_OTP_LOG_CODE:-false}
+
+      # === 跨域与 WebSocket Origin 白名单（生产环境请包含实际访问域名，如 https://careers.example.com） ===
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:5173,http://localhost:5174,http://localhost:80,http://localhost,http://127.0.0.1:5173,http://127.0.0.1:5174,http://127.0.0.1:80,http://127.0.0.1}
+    volumes:
+      - llm_config_data:/root/.interview-guide
     ports:
       - "8080:8080"
 
@@ -204,3 +221,4 @@ volumes:
   postgres_data:
   redis_data:
   minio_data:
+  llm_config_data:

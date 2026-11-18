@@ -283,6 +283,7 @@ interview-guide/
 │
 ├── docker-compose.yml                # 完整部署：前端 + 后端 + PostgreSQL + Redis + MinIO
 ├── docker-compose.dev.yml            # 本地开发依赖：PostgreSQL + Redis + RustFS + Mailpit
+├── DEPLOY.md                         # 生产环境部署、HTTPS/WebSocket 反代、企业微信邮件与升级运维指南
 ├── docs/                             # 架构设计与改造记录
 ├── .env.example                      # 环境变量示例
 └── README.md
@@ -404,6 +405,8 @@ pnpm dev
 
 
 ## Docker 快速部署
+
+> **生产上线与升级运维**：如需部署到云服务器生产环境（含 HTTPS + WebSocket 反向代理、企业微信邮件 API / SMTP 配置、AI 在线笔试与防作弊初始化、备份与无缝升级），请直接参阅 **[《生产环境部署与升级运维指南 (DEPLOY.md)》](./DEPLOY.md)**。
 
 本项目提供了完整的 Docker 支持，可以一键启动所有服务（前后端、数据库、中间件）。
 
