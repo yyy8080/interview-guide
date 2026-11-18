@@ -8,13 +8,15 @@ import {
   Loader2,
   MapPin,
   RefreshCw,
+  Upload,
 } from 'lucide-react';
 import { candidateApi } from '../../api/candidate';
 import { getErrorMessage } from '../../api/request';
+import CandidateLevelSelector from '../../components/CandidateLevelSelector';
 import { ROUTES } from '../../constants/routes';
 import { formatDateTime } from '../../utils/date';
 import { isCandidateAuthenticated } from '../../utils/candidateStorage';
-import { INTERVIEW_MODE_LABELS, JOB_DIFFICULTY_LABELS } from '../../types/job';
+import { INTERVIEW_MODE_LABELS, JOB_DIFFICULTY_LABELS, type JobDifficulty } from '../../types/job';
 import {
   CANDIDATE_STAGE_LABELS,
   type CandidateApplication,
@@ -43,6 +45,10 @@ export default function CandidateApplicationsPage() {
   const [actingId, setActingId] = useState<number | null>(null);
   const [rescheduleOpenId, setRescheduleOpenId] = useState<number | null>(null);
   const [rescheduleNote, setRescheduleNote] = useState('');
+
+  const [resubmitOpenId, setResubmitOpenId] = useState<number | null>(null);
+  const [resubmitFile, setResubmitFile] = useState<File | null>(null);
+  const [resubmitLevel, setResubmitLevel] = useState<JobDifficulty>('mid');
 
   const loadList = useCallback(async () => {
     setLoading(true);
@@ -104,6 +110,29 @@ export default function CandidateApplicationsPage() {
       setRescheduleOpenId(null);
       setRescheduleNote('');
       showNotice('已提交改期申请，HR 重新调整后将通过邮件通知您');
+    } catch (err) {
+      setError(getErrorMessage(err));
+    } finally {
+      setActingId(null);
+    }
+  };
+
+  const handleResubmitResume = async (id: number) => {
+    if (!resubmitFile) {
+      setError('请先选择修改后的简历文件');
+      return;
+    }
+    setActingId(id);
+    setError(null);
+    try {
+      const updated = await candidateApi.resubmitResume(id, {
+        file: resubmitFile,
+        candidateLevel: resubmitLevel,
+      });
+      setItems(prev => prev.map(item => (item.id === id ? updated : item)));
+      setResubmitOpenId(null);
+      setResubmitFile(null);
+      showNotice('已重新提交简历，系统正在重新进行 AI 简历初筛');
     } catch (err) {
       setError(getErrorMessage(err));
     } finally {
@@ -246,10 +275,33 @@ export default function CandidateApplicationsPage() {
                 app.screeningFeedback ? (
                   <div
                     data-testid={`screening-feedback-${app.id}`}
-                    className="space-y-2.5 rounded-xl border border-amber-200/80 bg-amber-50/50 p-4 text-sm dark:border-amber-800/60 dark:bg-amber-900/15"
+                    className="space-y-3 rounded-xl border border-amber-200/80 bg-amber-50/50 p-4 text-sm dark:border-amber-800/60 dark:bg-amber-900/15"
                   >
-                    <div className="font-semibold text-amber-900 dark:text-amber-200">
-                      简历初筛未通过原因
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="font-semibold text-amber-900 dark:text-amber-200">
+                        简历初筛未通过原因
+                      </div>
+                      {app.screeningFeedback.canResubmit && (
+                        <button
+                          type="button"
+                          data-testid={`open-resubmit-${app.id}`}
+                          onClick={() => {
+                            if (resubmitOpenId === app.id) {
+                              setResubmitOpenId(null);
+                              setResubmitFile(null);
+                            } else {
+                              setResubmitOpenId(app.id);
+                              setResubmitFile(null);
+                              setResubmitLevel(app.candidateLevel ?? 'mid');
+                            }
+                          }}
+                          className="btn-primary flex items-center gap-1.5 rounded-xl px-3.5 py-1.5 text-xs font-medium"
+                        >
+                          <Upload className="h-3.5 w-3.5" />
+                          重新上传修改后的简历（剩余{' '}
+                          {Math.max(1, app.screeningFeedback.maxRevisions - app.screeningFeedback.revisionCount)} 次机会）
+                        </button>
+                      )}
                     </div>
                     <p className="leading-relaxed text-slate-700 dark:text-slate-200">
                       {app.screeningFeedback.summary}
@@ -266,9 +318,72 @@ export default function CandidateApplicationsPage() {
                         </ul>
                       </div>
                     )}
-                    <p className="pt-0.5 text-xs text-slate-500 dark:text-slate-400">
-                      建议在简历中补充上述相关技术或项目实践细节，也欢迎继续关注其他匹配职位。
-                    </p>
+
+                    {app.screeningFeedback.canResubmit ? (
+                      <>
+                        <p className="pt-0.5 text-xs text-slate-500 dark:text-slate-400">
+                          每份投递提供 {app.screeningFeedback.maxRevisions} 次完善简历并重新初筛的机会。请结合本人真实经历补充项目职责与技术细节，切勿虚构或夸大；后续语音面试将围绕您简历中的内容逐项提问以核验简历真实性。
+                        </p>
+
+                        {resubmitOpenId === app.id && (
+                          <div
+                            data-testid={`resubmit-panel-${app.id}`}
+                            className="space-y-3 rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900/70"
+                          >
+                            <CandidateLevelSelector
+                              value={resubmitLevel}
+                              onChange={setResubmitLevel}
+                              disabled={actingId === app.id}
+                              label="确认或调整应聘定位"
+                              hint="可按实际能力调整初级 / 中级 / 高级"
+                              testIdPrefix={`resubmit-level-${app.id}`}
+                            />
+
+                            <div className="space-y-1.5">
+                              <label className="block text-xs font-medium text-slate-700 dark:text-slate-300">
+                                上传修改后的简历（支持 PDF / Word / TXT） *
+                              </label>
+                              <input
+                                data-testid={`resubmit-file-${app.id}`}
+                                type="file"
+                                accept=".pdf,.docx,.doc,.txt"
+                                onChange={e => setResubmitFile(e.target.files?.[0] ?? null)}
+                                className="block w-full text-xs text-slate-600 file:mr-3 file:rounded-lg file:border-0 file:bg-primary-50 file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-primary-700 hover:file:bg-primary-100 dark:text-slate-300 dark:file:bg-primary-900/30 dark:file:text-primary-300"
+                              />
+                            </div>
+
+                            <div className="flex justify-end gap-2 pt-1">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setResubmitOpenId(null);
+                                  setResubmitFile(null);
+                                }}
+                                className="btn-secondary rounded-xl px-4 py-1.5 text-xs"
+                              >
+                                取消
+                              </button>
+                              <button
+                                type="button"
+                                data-testid={`confirm-resubmit-${app.id}`}
+                                disabled={!resubmitFile || actingId === app.id}
+                                onClick={() => handleResubmitResume(app.id)}
+                                className="btn-primary flex items-center gap-1.5 rounded-xl px-4 py-1.5 text-xs font-medium disabled:opacity-50"
+                              >
+                                {actingId === app.id && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                                确认重新提交初筛
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <p className="pt-0.5 text-xs text-slate-500 dark:text-slate-400">
+                        {app.screeningFeedback.revisionCount > 0
+                          ? `已使用完 ${app.screeningFeedback.maxRevisions} 次简历修改重提机会，本次未能进入下一环节，欢迎继续关注其他匹配职位。`
+                          : '建议在简历中补充上述相关技术或项目实践细节，欢迎继续关注其他匹配职位。'}
+                      </p>
+                    )}
                   </div>
                 ) : (
                   <p className="text-sm text-slate-500 dark:text-slate-400">

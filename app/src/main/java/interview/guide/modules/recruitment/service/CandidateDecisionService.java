@@ -123,7 +123,7 @@ public class CandidateDecisionService {
     variables.put("candidateLevel", interview.guide.modules.recruitment.model.CandidateLevels.label(effectiveLevel));
     variables.put("passThreshold", threshold);
     variables.put("jdText", ResumeScreeningService.truncate(job.getJdText(), 6_000));
-    variables.put("screeningSummary", describeScreening(screening));
+    variables.put("screeningSummary", describeScreening(application, screening));
     variables.put("writtenSummary", describeWritten(written));
     variables.put("interviewMode", application.getInterviewMode() == null
         ? "文字" : application.getInterviewMode().name().equals("VOICE") ? "语音" : "文字");
@@ -163,11 +163,17 @@ public class CandidateDecisionService {
         + "% + 面试 " + written.interviewScore() + "×" + (100 - written.weight()) + "%）";
   }
 
-  private static String describeScreening(ScreeningResult screening) {
-    if (screening == null) {
-      return "（未进行 AI 初筛）";
-    }
+  private static String describeScreening(ApplicationEntity application, ScreeningResult screening) {
     StringBuilder sb = new StringBuilder();
+    if (application != null && application.getResumeRevisionCount() > 0) {
+      sb.append("简历重提记录：候选人曾在首次初筛未通过后修改重传过 ")
+          .append(application.getResumeRevisionCount())
+          .append(" 次简历，请重点结合面试回答核验新补充经历的真实性。\n");
+    }
+    if (screening == null) {
+      sb.append("（未进行 AI 初筛）");
+      return sb.toString();
+    }
     sb.append("匹配分：").append(screening.score()).append('\n');
     sb.append("结论：").append(screening.summary()).append('\n');
     if (!screening.missingRequirements().isEmpty()) {

@@ -58,6 +58,9 @@ export interface CandidateOfflineInterview {
 export interface CandidateScreeningFeedback {
   summary: string;
   missingRequirements: string[];
+  canResubmit: boolean;
+  revisionCount: number;
+  maxRevisions: number;
 }
 
 export interface CandidateApplication {
@@ -432,6 +435,7 @@ export interface ApplicationDetail {
   resumeId: number;
   resumeFilename: string | null;
   resumeText: string | null;
+  resumeRevisionCount?: number;
   screeningScore: number | null;
   screeningResult: ScreeningResult | null;
   writtenTest?: WrittenTestDetail | null;

@@ -1,5 +1,6 @@
 package interview.guide.modules.recruitment.service;
 
+import interview.guide.common.config.RecruitmentProperties;
 import interview.guide.common.exception.BusinessException;
 import interview.guide.common.exception.ErrorCode;
 import interview.guide.common.transaction.TransactionalExecutor;
@@ -36,7 +37,7 @@ import org.springframework.web.multipart.MultipartFile;
 import tools.jackson.databind.ObjectMapper;
 
 /**
- * 候选人侧投递：投递简历、查看进度、确认 / 申请改期线下面试
+ * 候选人侧投递：投递简历、初筛未通过修改重提、查看进度、确认 / 申请改期线下面试
  */
 @Slf4j
 @Service
@@ -57,6 +58,7 @@ public class CandidateApplicationService {
   private final ApplicationWorkflowService workflowService;
   private final TransactionalExecutor transactionalExecutor;
   private final ObjectMapper objectMapper;
+  private final RecruitmentProperties properties;
 
   /**
    * 投递岗位：校验 → 上传解析简历（事务外）→ 事务内创建投递单并进入初筛 / 面试邀请
@@ -180,6 +182,78 @@ public class CandidateApplicationService {
     return toDTO(application, job, offlineOf(application));
   }
 
+  /**
+   * 简历初筛未通过后修改并重新提交简历（默认限 1 次）：
+   * 校验当前处于 SCREEN_REJECTED 且未超过修改次数 → 事务外上传解析新简历 → 行锁事务内替换简历并重新流转至 SCREENING
+   */
+  public CandidateApplicationDTO resubmitResume(Long candidateId, Long applicationId, MultipartFile file,
+                                                String candidateLevel) {
+    String normalizedLevel = CandidateLevels.normalizeOrNull(candidateLevel);
+    ApplicationEntity current = requireOwned(candidateId, applicationId);
+    if (current.getStatus() != ApplicationStatus.SCREEN_REJECTED) {
+      throw new BusinessException(ErrorCode.APPLICATION_STATUS_INVALID, "仅简历初筛未通过的投递支持修改重提简历");
+    }
+    int maxRevisions = Math.max(0, properties.getMaxResumeRevisions());
+    if (current.getResumeRevisionCount() >= maxRevisions) {
+      throw new BusinessException(ErrorCode.APPLICATION_STATUS_INVALID,
+          "每份投递最多允许修改重传 " + maxRevisions + " 次简历，您的修改机会已用完");
+    }
+    JobPositionEntity job = jobPositionRepository.findById(current.getJobId())
+        .orElseThrow(() -> new BusinessException(ErrorCode.JOB_NOT_FOUND));
+    if (!job.isAcceptingApplications(LocalDateTime.now())) {
+      throw new BusinessException(ErrorCode.JOB_NOT_ACCEPTING, "该岗位已停止接收投递，无法重新提交简历");
+    }
+
+    ResumeEntity newResume = resumeUploadService.uploadForApplication(file);
+    ApplicationEntity updated;
+    try {
+      updated = transactionalExecutor.call(() -> doResubmit(candidateId, applicationId, job, newResume.getId(),
+          normalizedLevel, maxRevisions));
+    } catch (RuntimeException e) {
+      discardResume(newResume);
+      throw e;
+    }
+    log.info("候选人修改并重新提交简历: applicationId={}, candidateId={}, revisionCount={}, status={}",
+        updated.getId(), candidateId, updated.getResumeRevisionCount(), updated.getStatus());
+    return toDTO(updated, job, null);
+  }
+
+  private ApplicationEntity doResubmit(Long candidateId, Long applicationId, JobPositionEntity job,
+                                       Long newResumeId, String normalizedLevel, int maxRevisions) {
+    ApplicationEntity locked = applicationRepository.findByIdForUpdate(applicationId)
+        .filter(app -> app.getCandidateId().equals(candidateId))
+        .orElseThrow(() -> new BusinessException(ErrorCode.APPLICATION_NOT_FOUND));
+    if (locked.getStatus() != ApplicationStatus.SCREEN_REJECTED) {
+      throw new BusinessException(ErrorCode.APPLICATION_STATUS_INVALID, "当前投递状态不支持修改重提简历");
+    }
+    if (locked.getResumeRevisionCount() >= maxRevisions) {
+      throw new BusinessException(ErrorCode.APPLICATION_STATUS_INVALID,
+          "每份投递最多允许修改重传 " + maxRevisions + " 次简历，您的修改机会已用完");
+    }
+    String resolvedLevel = CandidateLevels.resolve(
+        normalizedLevel != null ? normalizedLevel : locked.getCandidateLevel(),
+        job.getDifficulty());
+    int nextCount = locked.getResumeRevisionCount() + 1;
+    locked.setResumeId(newResumeId);
+    locked.setCandidateLevel(resolvedLevel);
+    locked.setResumeRevisionCount(nextCount);
+    locked.setScreeningScore(null);
+    locked.setScreeningResultJson(null);
+    locked.setDecidedAt(null);
+    locked.finishTask();
+
+    if (job.isScreeningEnabled()) {
+      locked.setTaskUpdatedAt(LocalDateTime.now());
+      stateMachine.transit(locked, ApplicationStatus.SCREENING, OperatorType.CANDIDATE, candidateId,
+          "候选人修改并重新提交简历（第 " + nextCount + "/" + maxRevisions
+              + " 次修改，定位：" + CandidateLevels.label(resolvedLevel) + "），重新进入 AI 简历初筛");
+    } else {
+      workflowService.invite(locked, OperatorType.CANDIDATE, candidateId,
+          "候选人重新提交简历（第 " + nextCount + " 次修改），岗位未开启初筛直接进入在线面试");
+    }
+    return locked;
+  }
+
   /** 候选人确认参加线下面试 */
   @Transactional(rollbackFor = Exception.class)
   public CandidateApplicationDTO confirmOffline(Long candidateId, Long applicationId) {
@@ -251,9 +325,14 @@ public class CandidateApplicationService {
   }
 
   private CandidateApplicationDTO toDTO(ApplicationEntity app, JobPositionEntity job, CandidateOfflineDTO offline) {
-    CandidateScreeningFeedbackDTO screeningFeedback = app.getStatus() == ApplicationStatus.SCREEN_REJECTED
-        ? CandidateScreeningFeedbackDTO.fromJson(app.getScreeningResultJson(), objectMapper)
-        : null;
+    CandidateScreeningFeedbackDTO screeningFeedback = null;
+    if (app.getStatus() == ApplicationStatus.SCREEN_REJECTED) {
+      int maxRevisions = Math.max(0, properties.getMaxResumeRevisions());
+      boolean canResubmit = app.getResumeRevisionCount() < maxRevisions
+          && job != null && job.isAcceptingApplications(LocalDateTime.now());
+      screeningFeedback = CandidateScreeningFeedbackDTO.fromJson(
+          app.getScreeningResultJson(), objectMapper, canResubmit, app.getResumeRevisionCount(), maxRevisions);
+    }
     return new CandidateApplicationDTO(
         app.getId(),
         app.getJobId(),

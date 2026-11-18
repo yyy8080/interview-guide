@@ -80,6 +80,17 @@ public class CandidatePortalController {
     return Result.success(applicationService.getMine(candidateAuthService.requireCandidateId(token), id));
   }
 
+  @PostMapping(value = "/applications/{id}/resubmit-resume", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+  @RateLimit(dimension = RateLimit.Dimension.IP, count = 10, interval = 1, timeUnit = RateLimit.TimeUnit.MINUTES)
+  public Result<CandidateApplicationDTO> resubmitResume(
+      @RequestHeader(value = CandidateAuthService.TOKEN_HEADER, required = false) String token,
+      @PathVariable Long id,
+      @RequestParam("file") MultipartFile file,
+      @RequestParam(value = "candidateLevel", required = false) String candidateLevel) {
+    Long candidateId = candidateAuthService.requireCandidateId(token);
+    return Result.success(applicationService.resubmitResume(candidateId, id, file, candidateLevel));
+  }
+
   // ========== 在线面试 ==========
 
   @PostMapping("/applications/{id}/interview/start")

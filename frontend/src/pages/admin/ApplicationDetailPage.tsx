@@ -344,6 +344,14 @@ export default function ApplicationDetailPage() {
                     : ''}
                 </span>
               )}
+              {(detail.resumeRevisionCount ?? 0) > 0 && (
+                <span
+                  data-testid="resume-revision-badge"
+                  className="inline-flex rounded-full bg-amber-50 px-3 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-900/30 dark:text-amber-300"
+                >
+                  已修改重提简历（{detail.resumeRevisionCount} 次）
+                </span>
+              )}
               {detail.proctorRisk && (
                 <span
                   data-testid="proctor-risk-badge"

@@ -803,18 +803,18 @@ test.describe('企业招聘全流程（候选人门户 + HR 后台审核与邮�
     await expect(page.getByTestId('written-detail-card')).toContainText('AI 语义判分');
   });
 
-  test('新建岗位默认初筛分数线降低为 45 分，且求职者可在「我的投递」查看简历初筛未通过的具体原因', async ({ page }) => {
-    // 1. HR 后台新建岗位默认初筛分数线为 45 分
+  test('默认初筛分数线为 60 分，首次初筛未通过可修改重提 1 次简历，后续语音面试提示核验简历真实性', async ({ page }) => {
+    // 1. HR 后台新建岗位默认初筛分数线为 60 分
     await seedAdminAuth(page, 'ADMIN');
     await page.route('**/api/interview/skills', route => ok(route, []));
     await page.route('**/api/knowledgebase/list', route => ok(route, []));
     await page.route('**/api/llm-provider/list', route => ok(route, []));
 
     await page.goto('/admin/jobs/new');
-    await expect(page.getByTestId('job-screening-threshold')).toHaveValue('45');
-    await expect(page.getByText(/默认 45 分（宽进严出/)).toBeVisible();
+    await expect(page.getByTestId('job-screening-threshold')).toHaveValue('60');
+    await expect(page.getByText(/默认 60 分（首次初筛未通过时求职者可查看具体原因并有 1 次修改重提简历的机会/)).toBeVisible();
 
-    // 2. 求职者门户：简历初筛未通过展示具体原因与差距项，而面试/HR 未通过仅展示礼貌通用通知
+    // 2. 求职者门户：首次初筛未通过（701）可查看原因并重新上传 1 次修改后的简历；已用完 1 次机会（703）不可再重提；面试淘汰（702）不暴露内部细节
     await page.addInitScript(() => {
       window.localStorage.setItem('ig_candidate_token', 'cand-jwt-token-screen-reject');
       window.localStorage.setItem('ig_candidate_token_expires_at', '2099-12-31T23:59:59.000Z');
@@ -837,9 +837,9 @@ test.describe('企业招聘全流程（候选人门户 + HR 后台审核与邮�
           jobTitle: 'Java 后端研发工程师',
           department: '平台研发部',
           location: '杭州',
-          candidateLevel: 'junior',
+          candidateLevel: 'mid',
           stage: 'REJECTED',
-          availableModes: ['TEXT'],
+          availableModes: ['TEXT', 'VOICE'],
           interviewMode: null,
           questionCount: 6,
           timeLimitMinutes: 30,
@@ -850,8 +850,37 @@ test.describe('企业招聘全流程（候选人门户 + HR 后台审核与邮�
           interviewCompletedAt: null,
           offlineInterview: null,
           screeningFeedback: {
-            summary: '简历主要聚焦在 UI 视觉设计方向，暂未体现 Java 服务端与关系型数据库开发基础。',
-            missingRequirements: ['Java 与 Spring Boot Web 开发基础', 'SQL 与关系型数据库实践经历'],
+            summary: '简历对核心订单模块本人职责与 SQL 调优经历描述过简，未达 60 分初筛线。',
+            missingRequirements: ['Spring Boot 服务端开发细节', 'MySQL 索引与慢查询排查经历'],
+            canResubmit: true,
+            revisionCount: 0,
+            maxRevisions: 1,
+          },
+        },
+        {
+          id: 703,
+          jobId: 17,
+          jobTitle: 'Go 架构师',
+          department: '基础架构部',
+          location: '上海',
+          candidateLevel: 'senior',
+          stage: 'REJECTED',
+          availableModes: ['VOICE'],
+          interviewMode: null,
+          questionCount: 8,
+          timeLimitMinutes: 45,
+          submittedAt: '2026-11-18T10:30:00',
+          inviteExpiresAt: null,
+          interviewStartedAt: null,
+          interviewDeadlineAt: null,
+          interviewCompletedAt: null,
+          offlineInterview: null,
+          screeningFeedback: {
+            summary: '补充简历后仍缺乏大规模微服务治理实践经验。',
+            missingRequirements: ['万级 QPS 服务治理经验'],
+            canResubmit: false,
+            revisionCount: 1,
+            maxRevisions: 1,
           },
         },
         {
@@ -877,16 +906,61 @@ test.describe('企业招聘全流程（候选人门户 + HR 后台审核与邮�
       ]),
     );
 
+    await page.route('**/api/candidate/applications/701/resubmit-resume', async route => {
+      const rawBody = route.request().postDataBuffer()?.toString('utf8') ?? '';
+      expect(rawBody).toContain('candidateLevel');
+      expect(rawBody).toContain('junior');
+      await ok(route, {
+        id: 701,
+        jobId: 15,
+        jobTitle: 'Java 后端研发工程师',
+        department: '平台研发部',
+        location: '杭州',
+        candidateLevel: 'junior',
+        stage: 'SCREENING',
+        availableModes: ['TEXT', 'VOICE'],
+        interviewMode: null,
+        questionCount: 6,
+        timeLimitMinutes: 30,
+        submittedAt: '2026-11-18T11:00:00',
+        inviteExpiresAt: null,
+        interviewStartedAt: null,
+        interviewDeadlineAt: null,
+        interviewCompletedAt: null,
+        offlineInterview: null,
+        screeningFeedback: null,
+      });
+    });
+
     await page.goto('/careers/me');
-    await expect(page.getByText('简历初筛未通过', { exact: true })).toBeVisible();
     const feedbackCard = page.getByTestId('screening-feedback-701');
     await expect(feedbackCard).toContainText('简历初筛未通过原因');
-    await expect(feedbackCard).toContainText('简历主要聚焦在 UI 视觉设计方向，暂未体现 Java 服务端与关系型数据库开发基础。');
-    await expect(feedbackCard).toContainText('Java 与 Spring Boot Web 开发基础');
-    await expect(feedbackCard).toContainText('SQL 与关系型数据库实践经历');
+    await expect(feedbackCard).toContainText('简历对核心订单模块本人职责与 SQL 调优经历描述过简，未达 60 分初筛线。');
+    await expect(feedbackCard).toContainText('Spring Boot 服务端开发细节');
+    await expect(feedbackCard).toContainText('后续语音面试将围绕您简历中的内容逐项提问以核验简历真实性');
 
-    // 另一条非初筛淘汰记录不展示初筛原因卡片
+    // 已用完 1 次修改机会的投递（703）不显示重提按钮，提示机会已用完
+    const exhaustedCard = page.getByTestId('screening-feedback-703');
+    await expect(exhaustedCard).toContainText('已使用完 1 次简历修改重提机会');
+    await expect(page.getByTestId('open-resubmit-703')).toHaveCount(0);
+
+    // 面试淘汰记录（702）不展示初筛原因卡片
     await expect(page.getByTestId('screening-feedback-702')).toHaveCount(0);
     await expect(page.getByText('感谢您的关注与投入，经综合评估本次未能进入下一环节，祝您求职顺利。')).toBeVisible();
+
+    // 点击修改重提简历：将定位调整为初级并上传补充后的简历，流转回「简历筛选中」
+    await page.getByTestId('open-resubmit-701').click();
+    await page.getByTestId('resubmit-level-701-junior').click();
+    await page.getByTestId('resubmit-file-701').setInputFiles({
+      name: 'zhou-revised-cv.pdf',
+      mimeType: 'application/pdf',
+      buffer: Buffer.from('%PDF-1.4 revised java spring boot resume'),
+    });
+    await page.getByTestId('confirm-resubmit-701').click();
+
+    await expect(page.getByText('已重新提交简历，系统正在重新进行 AI 简历初筛')).toBeVisible();
+    await expect(page.getByTestId('my-app-level-701')).toContainText('定位：初级');
+    await expect(page.getByText('简历筛选中', { exact: true })).toBeVisible();
+    await expect(page.getByTestId('screening-feedback-701')).toHaveCount(0);
   });
 });

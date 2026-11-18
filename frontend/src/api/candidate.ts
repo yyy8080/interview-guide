@@ -55,6 +55,18 @@ export const candidateApi = {
     return request.get(`/api/candidate/applications/${id}`);
   },
 
+  resubmitResume(
+    applicationId: number,
+    params: { file: File; candidateLevel?: JobDifficulty },
+  ): Promise<CandidateApplication> {
+    const formData = new FormData();
+    formData.append('file', params.file);
+    if (params.candidateLevel) {
+      formData.append('candidateLevel', params.candidateLevel);
+    }
+    return request.upload(`/api/candidate/applications/${applicationId}/resubmit-resume`, formData);
+  },
+
   getWrittenTest(applicationId: number): Promise<CandidateWrittenTest> {
     return request.get(`/api/candidate/applications/${applicationId}/written-test`);
   },

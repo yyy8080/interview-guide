@@ -77,6 +77,10 @@ public class ApplicationEntity {
   @Column(name = "screening_result_json", columnDefinition = "TEXT")
   private String screeningResultJson;
 
+  /** 简历初筛未通过后候选人修改重传简历的次数 */
+  @Column(name = "resume_revision_count", nullable = false)
+  private int resumeRevisionCount = 0;
+
   // ========== AI 决策 ==========
 
   /** 面试评估总分 */

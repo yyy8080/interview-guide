@@ -7,6 +7,8 @@ import interview.guide.common.evaluation.UnifiedEvaluationService;
 import interview.guide.common.exception.BusinessException;
 import interview.guide.common.exception.ErrorCode;
 import interview.guide.modules.interview.skill.InterviewSkillService;
+import interview.guide.modules.resume.model.ResumeEntity;
+import interview.guide.modules.resume.repository.ResumeRepository;
 import interview.guide.modules.voiceinterview.dto.VoiceEvaluationDetailDTO;
 import interview.guide.modules.voiceinterview.dto.VoiceEvaluationDetailDTO.AnswerDetail;
 import interview.guide.modules.voiceinterview.model.VoiceInterviewEvaluationEntity;
@@ -42,6 +44,7 @@ public class VoiceInterviewEvaluationService {
     private final VoiceInterviewEvaluationRepository evaluationRepository;
     private final VoiceInterviewMessageRepository messageRepository;
     private final VoiceInterviewSessionRepository sessionRepository;
+    private final ResumeRepository resumeRepository;
     private final ObjectMapper objectMapper;
     private final InterviewSkillService skillService;
 
@@ -69,10 +72,17 @@ public class VoiceInterviewEvaluationService {
             String provider = session.getLlmProvider();
             ChatClient chatClient = llmProviderRegistry.getChatClientOrDefault(provider);
 
+            String resumeText = null;
+            if (session.getResumeId() != null) {
+                resumeText = resumeRepository.findById(session.getResumeId())
+                    .map(ResumeEntity::getResumeText)
+                    .orElse(null);
+            }
+
             String sessionIdStr = String.valueOf(sessionId);
             String referenceContext = skillService.buildEvaluationReferenceSectionSafe(session.getSkillId());
             EvaluationReport report = unifiedEvaluationService.evaluate(
-                chatClient, sessionIdStr, qaRecords, null, referenceContext);
+                chatClient, sessionIdStr, qaRecords, resumeText, referenceContext);
 
             saveEvaluationTransactional(sessionId, session, report);
 

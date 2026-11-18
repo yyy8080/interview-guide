@@ -68,23 +68,26 @@ class RecruitmentNotificationListenerTest {
         mailOutboxService,
         mailSettingsService,
         transactionalExecutor,
-        new ObjectMapper());
+        new ObjectMapper(),
+        new RecruitmentProperties());
   }
 
   @Test
-  @DisplayName("默认简历初筛分数线下调为 45 分（宽进严出）")
-  void defaultScreeningThresholdIsLoweredToFortyFive() {
+  @DisplayName("默认简历初筛分数线为 60 分，且每份投递默认提供 1 次简历修改机会")
+  void defaultScreeningThresholdIsSixtyWithOneResumeRevision() {
     RecruitmentProperties props = new RecruitmentProperties();
-    assertThat(props.getDefaultScreeningThreshold()).isEqualTo(45);
+    assertThat(props.getDefaultScreeningThreshold()).isEqualTo(60);
+    assertThat(props.getMaxResumeRevisions()).isEqualTo(1);
   }
 
   @Test
-  @DisplayName("简历初筛未通过通知邮件附带具体原因与主要差距，而 HR 拒绝邮件不附带内部评语")
+  @DisplayName("首次简历初筛未通过附带原因与 1 次修改重提提示，用完机会后不再提示重提，HR 拒绝不附带内部评语")
   @SuppressWarnings("unchecked")
-  void includesScreeningRejectReasonOnlyWhenScreenRejected() {
+  void includesScreeningRejectReasonAndRevisionNoticeAppropriately() {
     JobPositionEntity job = new JobPositionEntity();
     job.setId(10L);
     job.setTitle("Java 研发工程师");
+    job.setStatus(interview.guide.modules.job.model.JobStatus.OPEN);
     job.setScreeningEnabled(true);
 
     CandidateEntity candidate = new CandidateEntity();
@@ -97,9 +100,10 @@ class RecruitmentNotificationListenerTest {
     screenRejected.setCandidateId(88L);
     screenRejected.setCandidateName("陈同学");
     screenRejected.setStatus(ApplicationStatus.SCREEN_REJECTED);
+    screenRejected.setResumeRevisionCount(0);
     screenRejected.setScreeningResultJson("""
         {
-          "score": 32,
+          "score": 48,
           "summary": "简历暂未体现后端服务端开发经验，与岗位技术方向存在差距。",
           "missingRequirements": ["Java 基础与 Web 开发项目经历", "SQL 数据库基础"]
         }
@@ -116,7 +120,30 @@ class RecruitmentNotificationListenerTest {
         eq(EmailTemplateCode.REJECTED), varsCaptor.capture(), isNull());
     assertThat(varsCaptor.getValue().get("rejectReason"))
         .contains("简历初筛未通过原因：简历暂未体现后端服务端开发经验，与岗位技术方向存在差距。")
-        .contains("Java 基础与 Web 开发项目经历；SQL 数据库基础");
+        .contains("Java 基础与 Web 开发项目经历；SQL 数据库基础")
+        .contains("1 次补充完善并重新上传简历的机会")
+        .contains("后续语音面试将围绕您简历中的内容核验真实性");
+
+    ApplicationEntity secondScreenRejected = new ApplicationEntity();
+    secondScreenRejected.setId(503L);
+    secondScreenRejected.setJobId(10L);
+    secondScreenRejected.setCandidateId(88L);
+    secondScreenRejected.setCandidateName("陈同学");
+    secondScreenRejected.setStatus(ApplicationStatus.SCREEN_REJECTED);
+    secondScreenRejected.setResumeRevisionCount(1);
+    secondScreenRejected.setScreeningResultJson("""
+        {"score": 52, "summary": "补充后项目技术栈仍与后端岗位差距较大。", "missingRequirements": ["Spring Boot 服务端开发"]}
+        """);
+    when(applicationRepository.findById(503L)).thenReturn(Optional.of(secondScreenRejected));
+
+    listener.notify(new ApplicationStatusChangedEvent(503L, ApplicationStatus.SCREENING, ApplicationStatus.SCREEN_REJECTED));
+
+    ArgumentCaptor<Map<String, String>> secondVarsCaptor = ArgumentCaptor.forClass(Map.class);
+    verify(mailOutboxService).enqueue(eq(503L), eq("seeker@example.com"),
+        eq(EmailTemplateCode.REJECTED), secondVarsCaptor.capture(), isNull());
+    assertThat(secondVarsCaptor.getValue().get("rejectReason"))
+        .contains("补充后项目技术栈仍与后端岗位差距较大。")
+        .doesNotContain("补充完善并重新上传简历的机会");
 
     ApplicationEntity hrRejected = new ApplicationEntity();
     hrRejected.setId(502L);

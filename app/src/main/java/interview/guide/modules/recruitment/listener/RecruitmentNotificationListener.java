@@ -1,5 +1,6 @@
 package interview.guide.modules.recruitment.listener;
 
+import interview.guide.common.config.RecruitmentProperties;
 import interview.guide.common.transaction.TransactionalExecutor;
 import interview.guide.modules.interviewschedule.model.InterviewScheduleEntity;
 import interview.guide.modules.interviewschedule.repository.InterviewScheduleRepository;
@@ -54,6 +55,7 @@ public class RecruitmentNotificationListener {
   private final MailSettingsService mailSettingsService;
   private final TransactionalExecutor transactionalExecutor;
   private final ObjectMapper objectMapper;
+  private final RecruitmentProperties properties;
 
   @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
   public void onStatusChanged(ApplicationStatusChangedEvent event) {
@@ -94,7 +96,7 @@ public class RecruitmentNotificationListener {
         vars.put("interviewMode", modeLabel(job != null ? job.getInterviewMode() : null));
         vars.put("timeLimit", timeLimitText(job));
       }
-      case REJECTED -> vars.put("rejectReason", buildRejectReason(event.to(), app));
+      case REJECTED -> vars.put("rejectReason", buildRejectReason(event.to(), app, job));
       case OFFLINE_INVITE -> {
         InterviewScheduleEntity schedule = scheduleRepository.findByApplicationId(app.getId()).orElse(null);
         if (schedule == null) {
@@ -115,15 +117,23 @@ public class RecruitmentNotificationListener {
     mailOutboxService.enqueue(app.getId(), candidate.getEmail(), code, vars, ics);
   }
 
-  private String buildRejectReason(ApplicationStatus status, ApplicationEntity app) {
+  private String buildRejectReason(ApplicationStatus status, ApplicationEntity app, JobPositionEntity job) {
     if (status != ApplicationStatus.SCREEN_REJECTED) {
       return "";
     }
+    int maxRevisions = Math.max(0, properties.getMaxResumeRevisions());
+    boolean canResubmit = app.getResumeRevisionCount() < maxRevisions
+        && job != null && job.isAcceptingApplications(LocalDateTime.now());
     CandidateScreeningFeedbackDTO feedback = CandidateScreeningFeedbackDTO.fromJson(
-        app.getScreeningResultJson(), objectMapper);
+        app.getScreeningResultJson(), objectMapper, canResubmit, app.getResumeRevisionCount(), maxRevisions);
     StringBuilder sb = new StringBuilder("\n\n简历初筛未通过原因：").append(feedback.summary());
     if (!feedback.missingRequirements().isEmpty()) {
       sb.append("\n与岗位要求的主要差距：").append(String.join("；", feedback.missingRequirements()));
+    }
+    if (canResubmit) {
+      sb.append("\n您还有 ")
+          .append(maxRevisions - app.getResumeRevisionCount())
+          .append(" 次补充完善并重新上传简历的机会，可登录招聘门户在「我的投递」中重新提交（请基于真实经历补充，后续语音面试将围绕您简历中的内容核验真实性）。");
     }
     return sb.toString();
   }

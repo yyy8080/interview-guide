@@ -79,7 +79,7 @@ const EMPTY_FORM: FormState = {
   timeLimitMinutes: '45',
   llmProvider: '',
   screeningEnabled: true,
-  screeningThreshold: '45',
+  screeningThreshold: '60',
   aiPassThreshold: 70,
   proctorAwayReminder: true,
   proctorWatermark: true,
@@ -128,7 +128,7 @@ function fromJob(job: JobPosition): FormState {
     timeLimitMinutes: job.timeLimitMinutes != null ? String(job.timeLimitMinutes) : '',
     llmProvider: job.llmProvider ?? '',
     screeningEnabled: job.screeningEnabled,
-    screeningThreshold: job.screeningThreshold != null ? String(job.screeningThreshold) : '45',
+    screeningThreshold: job.screeningThreshold != null ? String(job.screeningThreshold) : '60',
     aiPassThreshold: job.aiPassThreshold,
     proctorAwayReminder: job.proctorAwayReminder ?? true,
     proctorWatermark: job.proctorWatermark ?? true,
@@ -603,7 +603,7 @@ export default function JobEditPage() {
                 onChange={e => update('screeningThreshold', e.target.value)}
               />
               <p className={hintClass}>
-                默认 45 分（宽进严出，仅过滤方向明显不符或空洞简历；未通过初筛时求职者可在「我的投递」查看具体未通过原因）
+                默认 60 分（首次初筛未通过时求职者可查看具体原因并有 1 次修改重提简历的机会，后续语音面试将围绕简历内容核验真实性）
               </p>
             </div>
           )}

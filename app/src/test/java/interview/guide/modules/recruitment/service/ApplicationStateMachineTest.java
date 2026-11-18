@@ -47,11 +47,26 @@ class ApplicationStateMachineTest {
 
     @ParameterizedTest
     @EnumSource(ApplicationStatus.class)
-    @DisplayName("AI 初筛淘汰、AI 复审淘汰、HR 淘汰均为严格终态，不可再迁移到任意状态")
-    void rejectedStatesAreTerminal(ApplicationStatus target) {
-      assertThat(ApplicationStatus.SCREEN_REJECTED.canTransitTo(target)).isFalse();
+    @DisplayName("AI 复审淘汰、HR 淘汰为严格终态；AI 初筛未通过仅允许修改重提进入 SCREENING 或直接邀约")
+    void rejectedStatesTransitionRules(ApplicationStatus target) {
       assertThat(ApplicationStatus.AI_REJECTED.canTransitTo(target)).isFalse();
       assertThat(ApplicationStatus.HR_REJECTED.canTransitTo(target)).isFalse();
+      if (target == ApplicationStatus.SCREENING || target == ApplicationStatus.INTERVIEW_INVITED) {
+        assertThat(ApplicationStatus.SCREEN_REJECTED.canTransitTo(target)).isTrue();
+      } else {
+        assertThat(ApplicationStatus.SCREEN_REJECTED.canTransitTo(target)).isFalse();
+      }
+    }
+
+    @Test
+    @DisplayName("初筛未通过重提简历流转回 SCREENING 时清空 decidedAt")
+    void clearsDecidedAtWhenResubmittingToScreening() {
+      ApplicationEntity app = new ApplicationEntity();
+      app.setId(15L);
+      app.setStatus(ApplicationStatus.SCREEN_REJECTED);
+      stateMachine.transit(app, ApplicationStatus.SCREENING, OperatorType.CANDIDATE, 99L, "修改重提简历");
+      assertThat(app.getStatus()).isEqualTo(ApplicationStatus.SCREENING);
+      assertThat(app.getDecidedAt()).isNull();
     }
 
     @Test

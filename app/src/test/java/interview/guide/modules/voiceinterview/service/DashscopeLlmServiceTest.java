@@ -112,4 +112,46 @@ class DashscopeLlmServiceTest {
     assertThat(replyEvent).isNotNull();
     assertThat(replyEvent.getFormattedMessage()).contains("replyLength=" + replyMarker.length());
   }
+
+  @Test
+  @DisplayName("绑定候选人简历时生成针对简历具体项目的首轮真实性核验提问，未绑定简历时返回 null")
+  void generatesResumeTargetedOpeningQuestionWhenResumePresent() {
+    VoiceInterviewSessionEntity noResumeSession = new VoiceInterviewSessionEntity();
+    assertThat(service.generateResumeOpeningQuestion(noResumeSession)).isNull();
+
+    VoiceInterviewSessionEntity session = new VoiceInterviewSessionEntity();
+    session.setId(9L);
+    session.setResumeId(77L);
+    session.setSkillId("java-backend");
+    session.setLlmProvider("dashscope");
+    session.setDifficulty("mid");
+
+    interview.guide.modules.resume.model.ResumeEntity resume = new interview.guide.modules.resume.model.ResumeEntity();
+    resume.setId(77L);
+    resume.setResumeText("主导智能风控规则引擎重构，规则评估耗时降低 65%。");
+
+    ChatClient chatClient = mock(ChatClient.class);
+    ChatClient.ChatClientRequestSpec requestSpec = mock(ChatClient.ChatClientRequestSpec.class);
+    ChatClient.CallResponseSpec callResponse = mock(ChatClient.CallResponseSpec.class);
+    ChatResponse chatResponse = mock(ChatResponse.class);
+    Generation generation = mock(Generation.class);
+
+    when(resumeRepository.findById(77L)).thenReturn(java.util.Optional.of(resume));
+    when(promptService.generateSystemPromptWithContext("java-backend", resume.getResumeText(), null, "mid"))
+        .thenReturn("系统提示-含简历核验");
+    when(llmProviderRegistry.getVoiceChatClient("dashscope")).thenReturn(chatClient);
+    when(chatClient.prompt()).thenReturn(requestSpec);
+    when(requestSpec.system("系统提示-含简历核验")).thenReturn(requestSpec);
+    when(requestSpec.user(anyString())).thenReturn(requestSpec);
+    when(requestSpec.call()).thenReturn(callResponse);
+    when(callResponse.chatResponse()).thenReturn(chatResponse);
+    when(chatResponse.getResult()).thenReturn(generation);
+    when(generation.getOutput()).thenReturn(new AssistantMessage(
+        "你好，我是本场面试官，已经看过你的简历。看到你主导了智能风控规则引擎重构并将耗时降低 65%，能具体讲讲你独立负责的核心模块和优化手段吗？"));
+
+    String opening = service.generateResumeOpeningQuestion(session);
+    assertThat(opening)
+        .contains("智能风控规则引擎重构")
+        .contains("独立负责的核心模块");
+  }
 }

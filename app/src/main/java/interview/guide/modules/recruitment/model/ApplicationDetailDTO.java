@@ -28,6 +28,7 @@ public record ApplicationDetailDTO(
     Long resumeId,
     String resumeFilename,
     String resumeText,
+    int resumeRevisionCount,
     // AI 初筛
     Integer screeningScore,
     ScreeningResult screeningResult,

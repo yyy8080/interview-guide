@@ -268,8 +268,9 @@ app:
     company-name: ${APP_RECRUITMENT_COMPANY_NAME:招聘团队}
     # 在线面试邀请有效期（天）
     invite-expire-days: ${APP_RECRUITMENT_INVITE_EXPIRE_DAYS:7}
-    # 岗位未配置时的初筛通过线（默认 45 分，宽进严出） / 语音面试默认时长（分钟）
-    default-screening-threshold: ${APP_RECRUITMENT_DEFAULT_SCREENING_THRESHOLD:45}
+    # 岗位未配置时的初筛通过线（默认 60 分） / 初筛未通过允许修改重传次数 / 语音面试默认时长（分钟）
+    default-screening-threshold: ${APP_RECRUITMENT_DEFAULT_SCREENING_THRESHOLD:60}
+    max-resume-revisions: ${APP_RECRUITMENT_MAX_RESUME_REVISIONS:1}
     default-voice-duration-minutes: ${APP_RECRUITMENT_DEFAULT_VOICE_DURATION:30}
     # AI 建议不通过且置信度达到该值时，即使分数过线也判为不通过
     reject-confidence-threshold: ${APP_RECRUITMENT_REJECT_CONFIDENCE:0.8}

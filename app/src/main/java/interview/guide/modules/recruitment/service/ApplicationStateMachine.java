@@ -75,6 +75,7 @@ public class ApplicationStateMachine {
   private void touchTimestamps(ApplicationEntity application, ApplicationStatus target) {
     LocalDateTime now = LocalDateTime.now();
     switch (target) {
+      case SCREENING -> application.setDecidedAt(null);
       case INTERVIEWING -> application.setInterviewStartedAt(now);
       case AI_REVIEWING -> application.setInterviewCompletedAt(now);
       case AI_PASSED, AI_REJECTED, SCREEN_REJECTED -> application.setDecidedAt(now);

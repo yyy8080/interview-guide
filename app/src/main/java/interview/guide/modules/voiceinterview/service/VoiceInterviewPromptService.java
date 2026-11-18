@@ -72,10 +72,13 @@ public class VoiceInterviewPromptService {
 
         prompt.append("\n\n").append(VOICE_RESPONSE_CONSTRAINTS);
 
-        if (resumeText != null && !resumeText.isEmpty()) {
+        if (resumeText != null && !resumeText.isBlank()) {
             String safeResume = promptSanitizer.sanitize(resumeText);
-            prompt.append("\n\n【实时语音面试 - 候选人简历内容】\n")
-                .append("你已查阅过候选人简历。首轮仅用一句话说明已查阅，并立即进入首个问题。\n\n")
+            prompt.append("\n\n【实时语音面试 - 候选人简历内容与真实性核验（重点任务）】\n")
+                .append("1. 你已查阅过候选人简历，本场语音面试必须重点核验候选人简历内容的真实性，防止简历夸大或虚构经历。\n")
+                .append("2. 至少一半以上的主问题与追问必须直接锚定下述简历中明确写出的具体项目名称、所负责模块、技术选型或量化指标，点名简历原文细节让候选人说明本人具体完成了什么。\n")
+                .append("3. 追问聚焦可验证的实现细节：询问当时的业务背景与约束、为什么这样选型、关键代码/表结构/接口如何落地、量化指标如何测算、踩过什么真实问题。\n")
+                .append("4. 若候选人对自己简历中声称负责的内容回答空泛套话、前后矛盾或答不出基本实现细节，必须围绕该细节追问核实一次，不要轻易滑过。\n\n")
                 .append("【简历解析文本】\n")
                 .append(promptSanitizer.wrapWithDelimiters("resume", safeResume));
         }

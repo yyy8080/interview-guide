@@ -286,7 +286,17 @@ public class VoiceInterviewWebSocketHandler extends TextWebSocketHandler impleme
         return convertPcmToWav(pcm);
     }
 
+    private static final String DEFAULT_OPENING_QUESTION_RESUME_VERIFY =
+        "你好，我是本场面试官，我已经仔细看过你的简历。第一个问题：请挑一个你简历里写到的代表性项目，具体讲讲你本人独立负责的核心模块、关键技术实现以及落地结果，说完我会针对你简历里的具体细节继续追问。";
+
     private String buildOpeningQuestion(VoiceInterviewSessionEntity sessionEntity) {
+        if (sessionEntity.getResumeId() != null) {
+            String resumeOpening = llmService.generateResumeOpeningQuestion(sessionEntity);
+            if (resumeOpening != null && !resumeOpening.isBlank()) {
+                return resumeOpening;
+            }
+            return DEFAULT_OPENING_QUESTION_RESUME_VERIFY;
+        }
         String skillId = sessionEntity.getSkillId() != null ? sessionEntity.getSkillId() : "";
         VoiceInterviewProperties.OpeningConfig opening = voiceInterviewProperties.getOpening();
         Map<String, String> skillQuestions = opening != null ? opening.getSkillQuestions() : null;

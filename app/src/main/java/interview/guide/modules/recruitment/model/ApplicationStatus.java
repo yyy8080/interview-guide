@@ -33,7 +33,7 @@ public enum ApplicationStatus {
   private static final Map<ApplicationStatus, Set<ApplicationStatus>> TRANSITIONS = Map.ofEntries(
       Map.entry(SUBMITTED, EnumSet.of(SCREENING, INTERVIEW_INVITED, HR_REJECTED)),
       Map.entry(SCREENING, EnumSet.of(INTERVIEW_INVITED, SCREEN_REJECTED, HR_REJECTED)),
-      Map.entry(SCREEN_REJECTED, EnumSet.noneOf(ApplicationStatus.class)),
+      Map.entry(SCREEN_REJECTED, EnumSet.of(SCREENING, INTERVIEW_INVITED)),
       Map.entry(INTERVIEW_INVITED, EnumSet.of(INTERVIEWING, EXPIRED, HR_REJECTED)),
       Map.entry(INTERVIEWING, EnumSet.of(AI_REVIEWING, HR_REJECTED)),
       Map.entry(AI_REVIEWING, EnumSet.of(AI_PASSED, AI_REJECTED)),

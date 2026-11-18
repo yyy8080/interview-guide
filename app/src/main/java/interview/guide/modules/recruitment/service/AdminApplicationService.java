@@ -205,6 +205,7 @@ public class AdminApplicationService {
         job != null ? job.getAiPassThreshold() : null, job != null ? job.getScreeningThreshold() : null,
         app.getResumeId(), resume != null ? resume.getOriginalFilename() : null,
         resume != null ? resume.getResumeText() : null,
+        app.getResumeRevisionCount(),
         app.getScreeningScore(), parse(app.getScreeningResultJson(), ScreeningResult.class),
         writtenDetail,
         app.getInterviewMode(), app.getInterviewSessionId(), app.getVoiceSessionId(),

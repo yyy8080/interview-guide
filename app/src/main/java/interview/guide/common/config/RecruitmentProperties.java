@@ -22,8 +22,11 @@ public class RecruitmentProperties {
   /** 在线面试邀请有效期（天），超时未开始面试转为已过期 */
   private int inviteExpireDays = 7;
 
-  /** 岗位未配置初筛阈值时的默认值（宽进严出，主要过滤方向明显不符或无效简历） */
-  private int defaultScreeningThreshold = 45;
+  /** 岗位未配置初筛阈值时的默认值 */
+  private int defaultScreeningThreshold = 60;
+
+  /** 简历初筛未通过后最多允许求职者修改重传简历的次数 */
+  private int maxResumeRevisions = 1;
 
   /** 语音面试未配置时长时的默认时长（分钟） */
   private int defaultVoiceDurationMinutes = 30;

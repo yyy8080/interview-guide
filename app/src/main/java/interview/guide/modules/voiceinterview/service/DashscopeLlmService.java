@@ -248,5 +248,40 @@ public class DashscopeLlmService {
         return false;
     }
 
+    /**
+     * 为绑定了候选人简历的语音面试生成首轮开场提问：直接点名候选人简历中的具体项目或经历进行真实性核验。
+     * 若会话未关联简历、简历文本为空或 LLM 调用失败，返回 null 由调用方回退默认开场白。
+     */
+    public String generateResumeOpeningQuestion(VoiceInterviewSessionEntity session) {
+        if (session == null || session.getResumeId() == null) {
+            return null;
+        }
+        try {
+            ResumeEntity resume = resumeRepository.findById(session.getResumeId()).orElse(null);
+            if (resume == null || resume.getResumeText() == null || resume.getResumeText().isBlank()) {
+                return null;
+            }
+            String systemPrompt = promptService.generateSystemPromptWithContext(
+                session.getSkillId(), resume.getResumeText(), session.getCustomJdText(), session.getDifficulty());
+            String openingInstruction = "现在开始本场语音面试开场。请用简短一句话说明我是本场面试官且已仔细看过你的简历，"
+                + "然后直接点出候选人简历中写到的某一个具体项目名称、核心模块或量化成果，"
+                + "提出第一个用于核验简历真实性的问题（请候选人说明本人独立负责的部分与具体技术实现细节）。"
+                + "总长度控制在 2-3 句话，纯口语文本，不要使用列表或 Markdown。";
+
+            ChatClient chatClient = llmProviderRegistry.getVoiceChatClient(session.getLlmProvider());
+            ChatClient.CallResponseSpec response = chatClient.prompt()
+                .system(systemPrompt)
+                .user(openingInstruction)
+                .call();
+            String content = response.chatResponse().getResult().getOutput().getText();
+            String optimized = optimizeForVoice(content);
+            return optimized == null || optimized.isBlank() ? null : optimized;
+        } catch (Exception e) {
+            log.warn("生成简历定制语音开场题失败，回退默认简历核验开场白: sessionId={}, error={}",
+                session.getId(), ErrorLogSanitizer.summarize(e));
+            return null;
+        }
+    }
+
     private record PromptContext(String systemPrompt, String userPrompt) {}
 }

@@ -24,7 +24,9 @@ class VoiceInterviewPromptServiceTest {
         .contains("当前面试者自选定位为【初级】")
         .contains("避免超大规模分布式架构")
         .contains("负责后端微服务开发")
-        .contains("熟悉 Java 与 Spring Boot");
+        .contains("熟悉 Java 与 Spring Boot")
+        .contains("【实时语音面试 - 候选人简历内容与真实性核验（重点任务）】")
+        .contains("至少一半以上的主问题与追问必须直接锚定下述简历中明确写出的具体项目");
 
     String midPrompt = service.generateSystemPromptWithContext("java-backend", null, null, "mid");
     assertThat(midPrompt)

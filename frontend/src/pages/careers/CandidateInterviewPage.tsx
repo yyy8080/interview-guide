@@ -458,7 +458,7 @@ export default function CandidateInterviewPage() {
                   <div>
                     <div className="font-semibold text-slate-900 dark:text-white">实时语音面试</div>
                     <div className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-                      AI 面试官语音互动提问，支持语音识别与文字核对
+                      AI 面试官语音互动提问，结合您简历中的项目与经历细节核验真实性
                     </div>
                   </div>
                 </button>
@@ -474,8 +474,8 @@ export default function CandidateInterviewPage() {
             </div>
             <ul className="list-disc space-y-1 pl-5">
               <li>点击「开始面试」后由 AI 按您所选定位生成面试题目并立即开始计时，请确保网络通畅、环境安静。</li>
-              <li>本次面试不会开启摄像头，也无需全屏。</li>
-              <li>为保证公平，请本人独立完成作答；系统会记录离开页面、粘贴等作答行为，仅供 HR 复核参考。</li>
+              <li>语音面试将重点围绕您简历中填写的项目、模块与成果细节提问以核验简历真实性，请结合本人真实经历作答。</li>
+              <li>本次面试不会开启摄像头，也无需全屏；系统会无感记录离开页面、粘贴等作答行为，仅供 HR 复核参考。</li>
             </ul>
           </div>
 
@@ -514,6 +514,9 @@ export default function CandidateInterviewPage() {
               className="rounded-full bg-primary-50 px-2.5 py-0.5 text-xs font-medium text-primary-700 dark:bg-primary-900/30 dark:text-primary-300"
             >
               定位：{JOB_DIFFICULTY_LABELS[activeLevel]}
+            </span>
+            <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+              含简历真实性追问
             </span>
           </div>
           {remaining != null && (

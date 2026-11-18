@@ -9,6 +9,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import interview.guide.common.config.RecruitmentProperties;
 import interview.guide.common.exception.BusinessException;
 import interview.guide.common.exception.ErrorCode;
 import interview.guide.common.transaction.TransactionalExecutor;
@@ -82,7 +83,7 @@ class CandidateApplicationServiceTest {
     service = new CandidateApplicationService(
         applicationRepository, candidateRepository, jobPositionRepository, scheduleRepository,
         resumeUploadService, resumeRepository, stateMachine, workflowService, transactionalExecutor,
-        objectMapper);
+        objectMapper, new RecruitmentProperties());
   }
 
   private JobPositionEntity openJob(boolean screeningEnabled, InterviewMode mode) {
@@ -311,11 +312,70 @@ class CandidateApplicationServiceTest {
         .isEqualTo("简历主要集中在平面设计方向，暂未体现 Java 后端开发与数据库实践经历。");
     assertThat(dtoScreen.screeningFeedback().missingRequirements())
         .containsExactly("Java 与 Spring Boot 开发经验", "关系型数据库使用经验");
+    assertThat(dtoScreen.screeningFeedback().canResubmit()).isTrue();
+    assertThat(dtoScreen.screeningFeedback().revisionCount()).isZero();
+    assertThat(dtoScreen.screeningFeedback().maxRevisions()).isEqualTo(1);
 
     assertThat(list.get(1).stage()).isEqualTo(CandidateStage.REJECTED);
     assertThat(list.get(1).screeningFeedback()).isNull();
 
     assertThat(list.get(2).stage()).isEqualTo(CandidateStage.REJECTED);
     assertThat(list.get(2).screeningFeedback()).isNull();
+  }
+
+  @Test
+  @DisplayName("初筛未通过允许修改并重新提交 1 次简历回到 SCREENING，第 2 次重提返回 APPLICATION_STATUS_INVALID")
+  void resubmitsResumeOnceWhenScreenRejectedAndBlocksSecondAttempt() {
+    JobPositionEntity job = openJob(true, InterviewMode.BOTH);
+    ApplicationEntity app = new ApplicationEntity();
+    app.setId(401L);
+    app.setJobId(5L);
+    app.setCandidateId(99L);
+    app.setResumeId(10L);
+    app.setCandidateLevel("mid");
+    app.setStatus(ApplicationStatus.SCREEN_REJECTED);
+    app.setResumeRevisionCount(0);
+    app.setScreeningScore(52);
+    app.setScreeningResultJson("{\"score\":52,\"summary\":\"缺少后端实践描述\"}");
+
+    ResumeEntity revisedResume = new ResumeEntity();
+    revisedResume.setId(410L);
+    revisedResume.setStorageKey("resumes/410.pdf");
+    MockMultipartFile file = new MockMultipartFile("file", "cv-v2.pdf", "application/pdf", "pdf2".getBytes());
+
+    when(applicationRepository.findByIdAndCandidateId(401L, 99L)).thenReturn(Optional.of(app));
+    when(applicationRepository.findByIdForUpdate(401L)).thenReturn(Optional.of(app));
+    when(jobPositionRepository.findById(5L)).thenReturn(Optional.of(job));
+    when(resumeUploadService.uploadForApplication(file)).thenReturn(revisedResume);
+    when(transactionalExecutor.call(any())).thenAnswer(inv -> ((Supplier<?>) inv.getArgument(0)).get());
+    doAnswer(inv -> {
+      ApplicationEntity target = inv.getArgument(0);
+      target.setStatus(inv.getArgument(1));
+      return null;
+    }).when(stateMachine).transit(any(), any(), any(), any(), any());
+
+    CandidateApplicationDTO updated = service.resubmitResume(99L, 401L, file, "junior");
+    assertThat(updated.stage()).isEqualTo(CandidateStage.SCREENING);
+    assertThat(updated.candidateLevel()).isEqualTo("junior");
+    assertThat(app.getResumeId()).isEqualTo(410L);
+    assertThat(app.getResumeRevisionCount()).isEqualTo(1);
+    assertThat(app.getScreeningScore()).isNull();
+    assertThat(app.getScreeningResultJson()).isNull();
+    verify(stateMachine).transit(eq(app), eq(ApplicationStatus.SCREENING), eq(OperatorType.CANDIDATE), eq(99L), any());
+
+    // 假设修改后的简历第 2 次初筛仍未通过，此时 resumeRevisionCount == 1，不允许再次重提
+    app.setStatus(ApplicationStatus.SCREEN_REJECTED);
+    app.setScreeningResultJson("{\"score\":55,\"summary\":\"仍未达到岗位要求\"}");
+    CandidateApplicationDTO mineAfterSecondReject = service.getMine(99L, 401L);
+    assertThat(mineAfterSecondReject.screeningFeedback()).isNotNull();
+    assertThat(mineAfterSecondReject.screeningFeedback().canResubmit()).isFalse();
+    assertThat(mineAfterSecondReject.screeningFeedback().revisionCount()).isEqualTo(1);
+
+    MockMultipartFile thirdFile = new MockMultipartFile("file", "cv-v3.pdf", "application/pdf", "pdf3".getBytes());
+    assertThatThrownBy(() -> service.resubmitResume(99L, 401L, thirdFile, null))
+        .isInstanceOf(BusinessException.class)
+        .extracting(ex -> ((BusinessException) ex).getCode())
+        .isEqualTo(ErrorCode.APPLICATION_STATUS_INVALID.getCode());
+    verify(resumeUploadService, never()).uploadForApplication(thirdFile);
   }
 }
