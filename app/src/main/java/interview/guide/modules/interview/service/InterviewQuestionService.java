@@ -58,9 +58,9 @@ public class InterviewQuestionService {
         """;
 
     private static final Map<String, String> DIFFICULTY_DESCRIPTIONS = Map.of(
-        "junior", "校招/0-1年经验。考察基础概念和简单应用。",
-        "mid", "1-3年经验。考察原理理解和实战经验。",
-        "senior", "3年+经验。考察架构设计和深度调优。"
+        "junior", "初级定位（0-1年经验/校招）：以基础题为主（约 70% 核心概念、语法特性、常用 API 与基本项目应用，30% 基础实现原理），追问点到为止，避免超大规模分布式架构或偏门底层源码深挖。",
+        "mid", "中级定位（1-3年经验）：以进阶原理与工程实践为主（约 30% 基础应用、55% 底层实现原理与常见性能优化、15% 技术选型与线上排障），考察知其然也知其所以然。",
+        "senior", "高级定位（3年+经验）：以深度机制与架构设计为主（约 40% 核心底层机制与性能瓶颈调优、60% 高并发高可用系统架构设计、方案权衡与复杂线上故障排障），减少纯概念背诵，追问直击边界条件与工程取舍。"
     );
 
     private static final String[][] GENERIC_FALLBACK_QUESTIONS = {

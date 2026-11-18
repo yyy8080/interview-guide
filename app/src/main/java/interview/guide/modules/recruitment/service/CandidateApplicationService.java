@@ -12,6 +12,7 @@ import interview.guide.modules.recruitment.model.ApplicationEntity;
 import interview.guide.modules.recruitment.model.ApplicationStatus;
 import interview.guide.modules.recruitment.model.CandidateApplicationDTO;
 import interview.guide.modules.recruitment.model.CandidateEntity;
+import interview.guide.modules.recruitment.model.CandidateLevels;
 import interview.guide.modules.recruitment.model.CandidateOfflineDTO;
 import interview.guide.modules.recruitment.model.OperatorType;
 import interview.guide.modules.recruitment.repository.ApplicationRepository;
@@ -59,9 +60,18 @@ public class CandidateApplicationService {
    */
   public CandidateApplicationDTO apply(Long jobId, Long candidateId, String name, String phone, boolean consent,
                                        MultipartFile file) {
+    return apply(jobId, candidateId, name, phone, consent, file, null);
+  }
+
+  /**
+   * 投递岗位：校验 → 上传解析简历（事务外）→ 事务内创建投递单并进入初筛 / 面试邀请
+   */
+  public CandidateApplicationDTO apply(Long jobId, Long candidateId, String name, String phone, boolean consent,
+                                       MultipartFile file, String candidateLevel) {
     if (!consent) {
       throw new BusinessException(ErrorCode.CONSENT_REQUIRED);
     }
+    String normalizedLevel = CandidateLevels.normalizeOrNull(candidateLevel);
     String candidateName = trimToNull(name);
     if (candidateName == null || candidateName.length() > 64) {
       throw new BusinessException(ErrorCode.BAD_REQUEST, "请填写姓名（不超过 64 字）");
@@ -81,12 +91,13 @@ public class CandidateApplicationService {
       throw new BusinessException(ErrorCode.APPLICATION_DUPLICATE);
     }
 
+    String resolvedLevel = CandidateLevels.resolve(normalizedLevel, job.getDifficulty());
     ResumeEntity resume = resumeUploadService.uploadForApplication(file);
 
     ApplicationEntity saved;
     try {
       saved = transactionalExecutor.call(() -> createApplication(job, candidateId, candidateName, candidatePhone,
-          resume.getId()));
+          resolvedLevel, resume.getId()));
     } catch (DataIntegrityViolationException e) {
       discardResume(resume);
       throw new BusinessException(ErrorCode.APPLICATION_DUPLICATE);
@@ -94,8 +105,8 @@ public class CandidateApplicationService {
       discardResume(resume);
       throw e;
     }
-    log.info("候选人投递成功: applicationId={}, jobId={}, candidateId={}, status={}",
-        saved.getId(), jobId, candidateId, saved.getStatus());
+    log.info("候选人投递成功: applicationId={}, jobId={}, candidateId={}, level={}, status={}",
+        saved.getId(), jobId, candidateId, resolvedLevel, saved.getStatus());
     return toDTO(saved, job, null);
   }
 
@@ -110,7 +121,7 @@ public class CandidateApplicationService {
   }
 
   private ApplicationEntity createApplication(JobPositionEntity job, Long candidateId, String name, String phone,
-                                              Long resumeId) {
+                                              String candidateLevel, Long resumeId) {
     LocalDateTime now = LocalDateTime.now();
     ApplicationEntity application = new ApplicationEntity();
     application.setJobId(job.getId());
@@ -118,11 +129,12 @@ public class CandidateApplicationService {
     application.setResumeId(resumeId);
     application.setCandidateName(name);
     application.setCandidatePhone(phone);
+    application.setCandidateLevel(candidateLevel);
     application.setStatus(ApplicationStatus.SUBMITTED);
     application.setConsentAt(now);
     application.setSubmittedAt(now);
     ApplicationEntity saved = applicationRepository.saveAndFlush(application);
-    stateMachine.initialize(saved, "候选人投递简历");
+    stateMachine.initialize(saved, "候选人投递简历（自选定位：" + CandidateLevels.label(candidateLevel) + "）");
 
     // 同步候选人资料（最近一次投递填写的信息）
     candidateRepository.findById(candidateId).ifPresent(candidate -> updateProfile(candidate, name, phone));
@@ -243,6 +255,8 @@ public class CandidateApplicationService {
         job != null ? job.getDepartment() : null,
         job != null ? job.getLocation() : null,
         app.getStatus().toCandidateStage(),
+        interview.guide.modules.recruitment.model.CandidateLevels.resolve(
+            app.getCandidateLevel(), job != null ? job.getDifficulty() : null),
         availableModes(job),
         app.getInterviewMode(),
         job != null ? job.getQuestionCount() : null,

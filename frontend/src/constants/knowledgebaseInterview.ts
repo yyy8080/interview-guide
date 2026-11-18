@@ -19,7 +19,7 @@ export interface DifficultyOption {
 }
 
 export const DIFFICULTY_OPTIONS: DifficultyOption[] = [
-  { value: 'junior', label: '校招' },
+  { value: 'junior', label: '初级' },
   { value: 'mid', label: '中级' },
   { value: 'senior', label: '高级' },
 ];

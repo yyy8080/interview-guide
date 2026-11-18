@@ -528,12 +528,13 @@ export default function JobEditPage() {
             </select>
           </div>
           <div>
-            <label className={labelClass}>难度</label>
+            <label className={labelClass}>默认定位 / 建议难度</label>
             <select className={inputClass} value={form.difficulty} onChange={e => update('difficulty', e.target.value as JobDifficulty)}>
               {Object.entries(JOB_DIFFICULTY_LABELS).map(([value, label]) => (
                 <option key={value} value={value}>{label}</option>
               ))}
             </select>
+            <p className={hintClass}>候选人投递或开考前可自主选择初级 / 中级 / 高级，AI 将按候选人自选定位出题</p>
           </div>
           <div>
             <label className={labelClass}>题目数量：{form.questionCount} 题</label>

@@ -11,6 +11,7 @@ import interview.guide.modules.recruitment.model.CandidateWrittenTestDTO;
 import interview.guide.modules.recruitment.model.OfflineRescheduleRequest;
 import interview.guide.modules.recruitment.model.ProctorEventRequest;
 import interview.guide.modules.recruitment.model.StartInterviewRequest;
+import interview.guide.modules.recruitment.model.StartWrittenTestRequest;
 import interview.guide.modules.recruitment.model.WrittenAnswersRequest;
 import interview.guide.modules.recruitment.service.CandidateApplicationService;
 import interview.guide.modules.recruitment.service.CandidateAuthService;
@@ -60,9 +61,10 @@ public class CandidatePortalController {
       @RequestParam("file") MultipartFile file,
       @RequestParam("name") String name,
       @RequestParam(value = "phone", required = false) String phone,
+      @RequestParam(value = "candidateLevel", required = false) String candidateLevel,
       @RequestParam(value = "consent", defaultValue = "false") boolean consent) {
     Long candidateId = candidateAuthService.requireCandidateId(token);
-    return Result.success(applicationService.apply(jobId, candidateId, name, phone, consent, file));
+    return Result.success(applicationService.apply(jobId, candidateId, name, phone, consent, file, candidateLevel));
   }
 
   @GetMapping("/applications")
@@ -86,7 +88,8 @@ public class CandidatePortalController {
       @RequestHeader(value = CandidateAuthService.TOKEN_HEADER, required = false) String token,
       @PathVariable Long id,
       @Valid @RequestBody StartInterviewRequest request) {
-    return Result.success(interviewService.start(candidateAuthService.requireCandidateId(token), id, request.mode()));
+    return Result.success(interviewService.start(
+        candidateAuthService.requireCandidateId(token), id, request.mode(), request.candidateLevel()));
   }
 
   @GetMapping("/applications/{id}/interview")
@@ -141,8 +144,10 @@ public class CandidatePortalController {
   @RateLimit(dimension = RateLimit.Dimension.IP, count = 10, interval = 1, timeUnit = RateLimit.TimeUnit.MINUTES)
   public Result<CandidateWrittenTestDTO> startWrittenTest(
       @RequestHeader(value = CandidateAuthService.TOKEN_HEADER, required = false) String token,
-      @PathVariable Long id) {
-    return Result.success(writtenTestService.start(candidateAuthService.requireCandidateId(token), id));
+      @PathVariable Long id,
+      @Valid @RequestBody(required = false) StartWrittenTestRequest request) {
+    return Result.success(writtenTestService.start(
+        candidateAuthService.requireCandidateId(token), id, request != null ? request.candidateLevel() : null));
   }
 
   @PutMapping("/applications/{id}/written-test/answers")

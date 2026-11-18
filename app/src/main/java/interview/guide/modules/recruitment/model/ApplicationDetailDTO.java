@@ -17,9 +17,11 @@ public record ApplicationDetailDTO(
     String candidateName,
     String candidateEmail,
     String candidatePhone,
+    String candidateLevel,
     // 岗位
     Long jobId,
     String jobTitle,
+    String jobDifficulty,
     Integer aiPassThreshold,
     Integer screeningThreshold,
     // 简历

@@ -14,6 +14,7 @@ public record PublicJobDetailDTO(
     Integer headcount,
     String salaryRange,
     String jdText,
+    String difficulty,
     InterviewMode interviewMode,
     Integer questionCount,
     Integer timeLimitMinutes,

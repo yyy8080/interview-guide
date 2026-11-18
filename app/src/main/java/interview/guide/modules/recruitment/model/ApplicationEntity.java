@@ -47,6 +47,10 @@ public class ApplicationEntity {
   @Column(name = "candidate_phone", length = 32)
   private String candidatePhone;
 
+  /** 候选人自选应聘定位（junior / mid / senior） */
+  @Column(name = "candidate_level", length = 16)
+  private String candidateLevel;
+
   /** 仅允许通过 ApplicationStateMachine 修改 */
   @Enumerated(EnumType.STRING)
   @Column(nullable = false, length = 32)

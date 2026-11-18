@@ -25,7 +25,7 @@ import InterviewDetailPanel from '../../components/InterviewDetailPanel';
 import { ROUTES } from '../../constants/routes';
 import { getStoredUser } from '../../utils/authStorage';
 import { formatDateTime } from '../../utils/date';
-import { INTERVIEW_MODE_LABELS } from '../../types/job';
+import { INTERVIEW_MODE_LABELS, JOB_DIFFICULTY_LABELS } from '../../types/job';
 import {
   APPLICATION_STATUS_BADGES,
   APPLICATION_STATUS_LABELS,
@@ -333,6 +333,17 @@ export default function ApplicationDetailPage() {
               >
                 {APPLICATION_STATUS_LABELS[detail.status]}
               </span>
+              {detail.candidateLevel && (
+                <span
+                  data-testid="candidate-level-badge"
+                  className="inline-flex rounded-full bg-primary-50 px-3 py-0.5 text-xs font-medium text-primary-700 dark:bg-primary-900/30 dark:text-primary-300"
+                >
+                  自选定位：{JOB_DIFFICULTY_LABELS[detail.candidateLevel]}
+                  {detail.jobDifficulty && detail.jobDifficulty !== detail.candidateLevel
+                    ? `（岗位建议：${JOB_DIFFICULTY_LABELS[detail.jobDifficulty]}）`
+                    : ''}
+                </span>
+              )}
               {detail.proctorRisk && (
                 <span
                   data-testid="proctor-risk-badge"

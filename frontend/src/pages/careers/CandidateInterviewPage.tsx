@@ -15,13 +15,18 @@ import { candidateApi } from '../../api/candidate';
 import { getErrorMessage } from '../../api/request';
 import CandidateVoicePanel from '../../components/CandidateVoicePanel';
 import CandidateWrittenTest from '../../components/CandidateWrittenTest';
+import CandidateLevelSelector from '../../components/CandidateLevelSelector';
 import ConfirmDialog from '../../components/ConfirmDialog';
 import ProctorWatermark from '../../components/ProctorWatermark';
 import { useProctorMonitor } from '../../hooks/useProctorMonitor';
 import { AnswerTelemetryTracker } from '../../utils/proctorTelemetry';
 import { ROUTES } from '../../constants/routes';
 import { isCandidateAuthenticated } from '../../utils/candidateStorage';
-import type { ConcreteInterviewMode } from '../../types/job';
+import {
+  JOB_DIFFICULTY_LABELS,
+  type ConcreteInterviewMode,
+  type JobDifficulty,
+} from '../../types/job';
 import type {
   CandidateApplication,
   CandidateInterviewState,
@@ -49,6 +54,7 @@ export default function CandidateInterviewPage() {
   const [app, setApp] = useState<CandidateApplication | null>(null);
   const [state, setState] = useState<CandidateInterviewState | null>(null);
   const [chosenMode, setChosenMode] = useState<ConcreteInterviewMode>('TEXT');
+  const [chosenLevel, setChosenLevel] = useState<JobDifficulty>('mid');
   const [loading, setLoading] = useState(true);
   const [starting, setStarting] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -94,6 +100,10 @@ export default function CandidateInterviewPage() {
         setApp(appData);
         if (appData.availableModes.length > 0) {
           setChosenMode(appData.availableModes[0]);
+        }
+        const initialLevel = interviewData?.candidateLevel ?? appData.candidateLevel;
+        if (initialLevel) {
+          setChosenLevel(initialLevel);
         }
         if (interviewData) {
           setState(interviewData);
@@ -141,9 +151,17 @@ export default function CandidateInterviewPage() {
   const handleWrittenCompleted = useCallback(() => {
     setWrittenActive(false);
     setWrittenJustFinished(true);
-    candidateApi.getInterview(id).then(setState).catch(() => {
-      setState(prev => (prev ? { ...prev, writtenTestStatus: 'GRADED' } : prev));
-    });
+    candidateApi
+      .getInterview(id)
+      .then(data => {
+        setState(data);
+        if (data.candidateLevel) {
+          setChosenLevel(data.candidateLevel);
+        }
+      })
+      .catch(() => {
+        setState(prev => (prev ? { ...prev, writtenTestStatus: 'GRADED' } : prev));
+      });
   }, [id]);
 
   const getQuestionIndex = useCallback(
@@ -189,8 +207,11 @@ export default function CandidateInterviewPage() {
     setStarting(true);
     setError(null);
     try {
-      const started = await candidateApi.startInterview(id, chosenMode);
+      const started = await candidateApi.startInterview(id, chosenMode, chosenLevel);
       setState(started);
+      if (started.candidateLevel) {
+        setChosenLevel(started.candidateLevel);
+      }
       setRemaining(started.remainingSeconds);
       applyQuestion(started.currentQuestion);
     } catch (err) {
@@ -341,6 +362,8 @@ export default function CandidateInterviewPage() {
           plannedCount={state.writtenQuestionCount ?? 10}
           timeLimitMinutes={state.writtenTimeLimitMinutes ?? 15}
           initialStatus={state.writtenTestStatus ?? null}
+          candidateLevel={chosenLevel}
+          onLevelChange={setChosenLevel}
           onCompleted={handleWrittenCompleted}
           onProctor={reportProctor}
           onActiveChange={handleWrittenActiveChange}
@@ -351,7 +374,7 @@ export default function CandidateInterviewPage() {
     );
   }
 
-  // 尚未开始面试：选择面试形式 + 须知
+  // 尚未开始面试：选择定位 + 面试形式 + 须知
   if (!isInterviewing) {
     return (
       <div className="mx-auto max-w-2xl space-y-6">
@@ -385,6 +408,15 @@ export default function CandidateInterviewPage() {
               {error}
             </div>
           )}
+
+          <CandidateLevelSelector
+            value={chosenLevel}
+            onChange={setChosenLevel}
+            disabled={starting}
+            label="选择您的应聘定位"
+            hint="AI 将按所选定位生成面试题目"
+            testIdPrefix="interview-level"
+          />
 
           {/* 面试形式选择 */}
           <div className="space-y-2">
@@ -441,7 +473,7 @@ export default function CandidateInterviewPage() {
               诚信面试须知
             </div>
             <ul className="list-disc space-y-1 pl-5">
-              <li>点击「开始面试」后立即开始计时，请确保网络通畅、环境安静。</li>
+              <li>点击「开始面试」后由 AI 按您所选定位生成面试题目并立即开始计时，请确保网络通畅、环境安静。</li>
               <li>本次面试不会开启摄像头，也无需全屏。</li>
               <li>为保证公平，请本人独立完成作答；系统会记录离开页面、粘贴等作答行为，仅供 HR 复核参考。</li>
             </ul>
@@ -466,14 +498,24 @@ export default function CandidateInterviewPage() {
     );
   }
 
+  const activeLevel = state.candidateLevel ?? chosenLevel;
+
   // 进行中：语音模式
   if (state.mode === 'VOICE' && state.voiceSessionId) {
     return (
       <div className="space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <h1 className="text-lg font-bold text-slate-900 dark:text-white">
-            {state.jobTitle} · 语音面试进行中
-          </h1>
+          <div className="flex flex-wrap items-center gap-2">
+            <h1 className="text-lg font-bold text-slate-900 dark:text-white">
+              {state.jobTitle} · 语音面试进行中
+            </h1>
+            <span
+              data-testid="interview-active-level"
+              className="rounded-full bg-primary-50 px-2.5 py-0.5 text-xs font-medium text-primary-700 dark:bg-primary-900/30 dark:text-primary-300"
+            >
+              定位：{JOB_DIFFICULTY_LABELS[activeLevel]}
+            </span>
+          </div>
           {remaining != null && (
             <span className="flex items-center gap-1.5 rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700 dark:bg-slate-800 dark:text-slate-200">
               <Clock className="h-3.5 w-3.5 text-primary-500" />
@@ -505,7 +547,15 @@ export default function CandidateInterviewPage() {
     <div className="mx-auto max-w-3xl space-y-4">
       <div className="dark-card flex flex-wrap items-center justify-between gap-3 p-4">
         <div>
-          <h1 className="text-base font-bold text-slate-900 dark:text-white">{state.jobTitle} · 在线文字面试</h1>
+          <div className="flex flex-wrap items-center gap-2">
+            <h1 className="text-base font-bold text-slate-900 dark:text-white">{state.jobTitle} · 在线文字面试</h1>
+            <span
+              data-testid="interview-active-level"
+              className="rounded-full bg-primary-50 px-2.5 py-0.5 text-xs font-medium text-primary-700 dark:bg-primary-900/30 dark:text-primary-300"
+            >
+              定位：{JOB_DIFFICULTY_LABELS[activeLevel]}
+            </span>
+          </div>
           <p className="text-xs text-slate-500 dark:text-slate-400">
             第 {currentQ ? currentQ.questionIndex + 1 : state.currentQuestionIndex} / {state.totalQuestions} 题（{progress}%）
           </p>

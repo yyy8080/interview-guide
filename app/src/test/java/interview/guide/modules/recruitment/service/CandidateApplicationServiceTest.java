@@ -129,10 +129,42 @@ class CandidateApplicationServiceTest {
 
     assertThat(dto.id()).isEqualTo(1001L);
     assertThat(dto.stage()).isEqualTo(CandidateStage.SCREENING);
+    assertThat(dto.candidateLevel()).isEqualTo("mid");
     assertThat(dto.availableModes()).containsExactly(InterviewMode.TEXT, InterviewMode.VOICE);
-    verify(stateMachine).initialize(any(), eq("候选人投递简历"));
+    verify(stateMachine).initialize(any(), eq("候选人投递简历（自选定位：中级）"));
     verify(stateMachine).transit(any(), eq(ApplicationStatus.SCREENING), eq(OperatorType.SYSTEM), eq(null), any());
     verify(workflowService, never()).invite(any(), any(), any(), any());
+  }
+
+  @Test
+  @DisplayName("候选人投递可自主选择初级/中级/高级定位，非法定位值返回 BAD_REQUEST")
+  void applyStoresSelfSelectedCandidateLevelAndRejectsInvalidLevel() {
+    MockMultipartFile file = new MockMultipartFile("file", "cv.pdf", "application/pdf", "pdf".getBytes());
+
+    assertThatThrownBy(() -> service.apply(5L, 99L, "王五", null, true, file, "principal"))
+        .isInstanceOf(BusinessException.class)
+        .extracting(ex -> ((BusinessException) ex).getCode())
+        .isEqualTo(ErrorCode.BAD_REQUEST.getCode());
+
+    JobPositionEntity job = openJob(true, InterviewMode.TEXT);
+    job.setDifficulty("mid");
+    when(jobPositionRepository.findById(5L)).thenReturn(Optional.of(job));
+    when(candidateRepository.findById(99L)).thenReturn(Optional.of(candidate(99L)));
+    when(applicationRepository.existsByJobIdAndCandidateId(5L, 99L)).thenReturn(false);
+
+    ResumeEntity resume = new ResumeEntity();
+    resume.setId(305L);
+    when(resumeUploadService.uploadForApplication(file)).thenReturn(resume);
+    when(transactionalExecutor.call(any())).thenAnswer(inv -> ((Supplier<?>) inv.getArgument(0)).get());
+    when(applicationRepository.saveAndFlush(any(ApplicationEntity.class))).thenAnswer(inv -> {
+      ApplicationEntity app = inv.getArgument(0);
+      app.setId(1005L);
+      return app;
+    });
+
+    CandidateApplicationDTO dto = service.apply(5L, 99L, "王五", null, true, file, "senior");
+    assertThat(dto.candidateLevel()).isEqualTo("senior");
+    verify(stateMachine).initialize(any(), eq("候选人投递简历（自选定位：高级）"));
   }
 
   @Test

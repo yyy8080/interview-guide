@@ -13,8 +13,15 @@ import {
   getStoredCandidate,
   updateStoredCandidate,
 } from '../../utils/candidateStorage';
-import { EMPLOYMENT_TYPE_LABELS, INTERVIEW_MODE_LABELS, type PublicJobDetail } from '../../types/job';
+import {
+  EMPLOYMENT_TYPE_LABELS,
+  INTERVIEW_MODE_LABELS,
+  JOB_DIFFICULTY_LABELS,
+  type JobDifficulty,
+  type PublicJobDetail,
+} from '../../types/job';
 import type { CandidateProfile } from '../../types/recruitment';
+import CandidateLevelSelector from '../../components/CandidateLevelSelector';
 
 export default function CareerJobDetailPage() {
   const { jobId } = useParams<{ jobId: string }>();
@@ -27,6 +34,7 @@ export default function CareerJobDetailPage() {
   const [candidate, setCandidate] = useState<CandidateProfile | null>(getStoredCandidate);
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
+  const [candidateLevel, setCandidateLevel] = useState<JobDifficulty>('mid');
   const [file, setFile] = useState<File | null>(null);
   const [consent, setConsent] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -55,7 +63,12 @@ export default function CareerJobDetailPage() {
     }
     publicJobApi
       .get(id)
-      .then(setJob)
+      .then(data => {
+        setJob(data);
+        if (data.difficulty) {
+          setCandidateLevel(data.difficulty);
+        }
+      })
       .catch(err => setError(getErrorMessage(err)))
       .finally(() => setLoading(false));
   }, [jobId]);
@@ -83,6 +96,7 @@ export default function CareerJobDetailPage() {
         file,
         name: name.trim(),
         phone: phone.trim() || undefined,
+        candidateLevel,
         consent,
       });
       if (candidate) {
@@ -141,6 +155,11 @@ export default function CareerJobDetailPage() {
           {job.salaryRange && (
             <span className="text-lg font-semibold text-primary-600 dark:text-primary-400">{job.salaryRange}</span>
           )}
+          {job.difficulty && (
+            <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+              建议定位：{JOB_DIFFICULTY_LABELS[job.difficulty]}
+            </span>
+          )}
         </div>
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-slate-500 dark:text-slate-400">
           {job.department && <span>{job.department}</span>}
@@ -178,9 +197,9 @@ export default function CareerJobDetailPage() {
           应聘流程说明
         </h2>
         <ol className="list-decimal space-y-1 pl-5 text-sm text-slate-600 dark:text-slate-300">
-          <li>验证邮箱并上传个人简历</li>
+          <li>验证邮箱、自主选择应聘定位（初级 / 中级 / 高级）并上传个人简历</li>
           <li>
-            简历初筛通过后进入在线 AI 面试（{INTERVIEW_MODE_LABELS[job.interviewMode]}，约 {job.questionCount} 题
+            简历初筛通过后进入在线 AI 考核（{INTERVIEW_MODE_LABELS[job.interviewMode]}，AI 将按您自选的定位出题，约 {job.questionCount} 题
             {job.timeLimitMinutes ? `，限时 ${job.timeLimitMinutes} 分钟` : ''}）
           </li>
           <li>AI 自动评估与 HR 复核</li>
@@ -238,6 +257,16 @@ export default function CareerJobDetailPage() {
                 />
               </div>
             </div>
+
+            <CandidateLevelSelector
+              value={candidateLevel}
+              onChange={setCandidateLevel}
+              recommendedLevel={job.difficulty ?? null}
+              disabled={submitting}
+              label="选择您的应聘定位 *"
+              hint="AI 笔试与面试将按所选定位出题（开考前仍可调整）"
+              testIdPrefix="apply-level"
+            />
 
             <div>
               <label className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">

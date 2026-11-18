@@ -12,7 +12,9 @@ import {
 import { candidateApi } from '../api/candidate';
 import { getErrorMessage } from '../api/request';
 import ConfirmDialog from './ConfirmDialog';
+import CandidateLevelSelector from './CandidateLevelSelector';
 import { ROUTES } from '../constants/routes';
+import { JOB_DIFFICULTY_LABELS, type JobDifficulty } from '../types/job';
 import {
   WRITTEN_QUESTION_TYPE_LABELS,
   type CandidateWrittenQuestion,
@@ -55,6 +57,8 @@ interface CandidateWrittenTestProps {
   plannedCount: number;
   timeLimitMinutes: number;
   initialStatus: WrittenTestStatus | null;
+  candidateLevel: JobDifficulty;
+  onLevelChange: (level: JobDifficulty) => void;
   onCompleted: () => void;
   onProctor: (event: ProctorEventPayload, immediate?: boolean) => void;
   onActiveChange: (active: boolean, focusIndex?: number) => void;
@@ -66,6 +70,8 @@ export default function CandidateWrittenTest({
   plannedCount,
   timeLimitMinutes,
   initialStatus,
+  candidateLevel,
+  onLevelChange,
   onCompleted,
   onProctor,
   onActiveChange,
@@ -87,6 +93,9 @@ export default function CandidateWrittenTest({
 
   const applyTestState = useCallback(
     (data: CandidateWrittenTestState) => {
+      if (data.candidateLevel) {
+        onLevelChange(data.candidateLevel);
+      }
       if (data.status === 'SUBMITTED' || data.status === 'GRADED') {
         onActiveChange(false);
         onCompleted();
@@ -97,7 +106,7 @@ export default function CandidateWrittenTest({
       setRemaining(data.remainingSeconds);
       onActiveChange(data.status === 'IN_PROGRESS');
     },
-    [onActiveChange, onCompleted],
+    [onActiveChange, onCompleted, onLevelChange],
   );
 
   useEffect(() => {
@@ -191,7 +200,7 @@ export default function CandidateWrittenTest({
     setStarting(true);
     setError(null);
     try {
-      const started = await candidateApi.startWrittenTest(applicationId);
+      const started = await candidateApi.startWrittenTest(applicationId, candidateLevel);
       applyTestState(started);
     } catch (err) {
       setError(getErrorMessage(err));
@@ -262,6 +271,15 @@ export default function CandidateWrittenTest({
             </div>
           )}
 
+          <CandidateLevelSelector
+            value={candidateLevel}
+            onChange={onLevelChange}
+            disabled={starting}
+            label="选择您的应聘定位"
+            hint="AI 将按所选定位实时生成笔试题目"
+            testIdPrefix="written-level"
+          />
+
           <div className="rounded-xl bg-slate-50 p-4 text-xs leading-relaxed text-slate-600 dark:bg-slate-800/60 dark:text-slate-300">
             <div className="mb-1.5 flex items-center gap-1.5 font-semibold text-slate-800 dark:text-slate-200">
               <ShieldCheck className="h-4 w-4 text-primary-500" />
@@ -269,7 +287,7 @@ export default function CandidateWrittenTest({
             </div>
             <ul className="list-disc space-y-1 pl-5">
               <li>包含单选题、多选题（全对得分，少选或错选不得分）与单空填空题，作答进度自动保存。</li>
-              <li>点击「开始在线笔试」后由 AI 实时生成试卷并开始倒计时，到时自动交卷。</li>
+              <li>点击「开始在线笔试」后由 AI 按您所选定位实时生成试卷并开始倒计时，到时自动交卷。</li>
               <li>无需开启摄像头或全屏；请本人独立作答，系统会无感记录离开页面、粘贴等行为供 HR 复核参考。</li>
             </ul>
           </div>
@@ -295,11 +313,20 @@ export default function CandidateWrittenTest({
   }
 
   // 笔试作答中
+  const activeLevel = test.candidateLevel ?? candidateLevel;
   return (
     <div className="mx-auto max-w-3xl space-y-4" data-testid="written-active-panel">
       <div className="dark-card sticky top-16 z-20 flex flex-wrap items-center justify-between gap-3 p-4">
         <div>
-          <h1 className="text-base font-bold text-slate-900 dark:text-white">{jobTitle} · 在线笔试</h1>
+          <div className="flex flex-wrap items-center gap-2">
+            <h1 className="text-base font-bold text-slate-900 dark:text-white">{jobTitle} · 在线笔试</h1>
+            <span
+              data-testid="written-active-level"
+              className="rounded-full bg-primary-50 px-2.5 py-0.5 text-xs font-medium text-primary-700 dark:bg-primary-900/30 dark:text-primary-300"
+            >
+              定位：{JOB_DIFFICULTY_LABELS[activeLevel]}
+            </span>
+          </div>
           <p className="text-xs text-slate-500 dark:text-slate-400">
             已答 {answeredCount} / {test.questions.length} 题
             {savingHint === 'saving' && ' · 正在自动保存…'}

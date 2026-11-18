@@ -16,7 +16,7 @@ import { getErrorMessage } from '../../api/request';
 import { ROUTES } from '../../constants/routes';
 import { getStoredUser } from '../../utils/authStorage';
 import { formatDateTime } from '../../utils/date';
-import { INTERVIEW_MODE_LABELS, type JobPosition } from '../../types/job';
+import { INTERVIEW_MODE_LABELS, JOB_DIFFICULTY_LABELS, type JobPosition } from '../../types/job';
 import {
   APPLICATION_STATUS_BADGES,
   APPLICATION_STATUS_LABELS,
@@ -384,11 +384,20 @@ export default function ApplicationListPage() {
                       </td>
                       <td className="px-4 py-3 text-slate-700 dark:text-slate-200">
                         <div>{item.jobTitle}</div>
-                        {item.interviewMode && (
-                          <span className="text-xs text-slate-400">
-                            {INTERVIEW_MODE_LABELS[item.interviewMode]}
-                          </span>
-                        )}
+                        <div className="flex flex-wrap items-center gap-1.5 text-xs text-slate-400">
+                          {item.candidateLevel && (
+                            <span
+                              data-testid={`level-cell-${item.id}`}
+                              className="font-medium text-slate-600 dark:text-slate-300"
+                            >
+                              定位：{JOB_DIFFICULTY_LABELS[item.candidateLevel]}
+                            </span>
+                          )}
+                          {item.candidateLevel && item.interviewMode && <span>·</span>}
+                          {item.interviewMode && (
+                            <span>{INTERVIEW_MODE_LABELS[item.interviewMode]}</span>
+                          )}
+                        </div>
                       </td>
                       <td className="px-4 py-3">
                         <span

@@ -13,6 +13,7 @@ import java.time.LocalDateTime;
 public record CandidateInterviewDTO(
     Long applicationId,
     String jobTitle,
+    String candidateLevel,
     InterviewMode mode,
     CandidateStage stage,
     LocalDateTime startedAt,

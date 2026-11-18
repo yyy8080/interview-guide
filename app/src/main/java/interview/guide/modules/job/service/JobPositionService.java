@@ -129,6 +129,14 @@ public class JobPositionService {
     copy.setScreeningEnabled(source.isScreeningEnabled());
     copy.setScreeningThreshold(source.getScreeningThreshold());
     copy.setAiPassThreshold(source.getAiPassThreshold());
+    copy.setProctorAwayReminder(source.isProctorAwayReminder());
+    copy.setProctorWatermark(source.isProctorWatermark());
+    copy.setWrittenTestEnabled(source.isWrittenTestEnabled());
+    copy.setWrittenSingleCount(source.getWrittenSingleCount());
+    copy.setWrittenMultiCount(source.getWrittenMultiCount());
+    copy.setWrittenFillCount(source.getWrittenFillCount());
+    copy.setWrittenTimeLimitMinutes(source.getWrittenTimeLimitMinutes());
+    copy.setWrittenWeight(source.getWrittenWeight());
     copy.setStatus(JobStatus.DRAFT);
     copy.setCreatedBy(operatorId);
     JobPositionEntity saved = jobPositionRepository.save(copy);

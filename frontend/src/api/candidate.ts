@@ -1,5 +1,5 @@
 import request from './request';
-import type { ConcreteInterviewMode } from '../types/job';
+import type { ConcreteInterviewMode, JobDifficulty } from '../types/job';
 import type {
   CandidateAnswerResponse,
   CandidateApplication,
@@ -31,6 +31,7 @@ export const candidateApi = {
     file: File;
     name: string;
     phone?: string;
+    candidateLevel?: JobDifficulty;
     consent: boolean;
   }): Promise<CandidateApplication> {
     const formData = new FormData();
@@ -38,6 +39,9 @@ export const candidateApi = {
     formData.append('name', params.name);
     if (params.phone) {
       formData.append('phone', params.phone);
+    }
+    if (params.candidateLevel) {
+      formData.append('candidateLevel', params.candidateLevel);
     }
     formData.append('consent', String(params.consent));
     return request.upload(`/api/candidate/jobs/${params.jobId}/apply`, formData);
@@ -55,10 +59,13 @@ export const candidateApi = {
     return request.get(`/api/candidate/applications/${applicationId}/written-test`);
   },
 
-  startWrittenTest(applicationId: number): Promise<CandidateWrittenTest> {
+  startWrittenTest(
+    applicationId: number,
+    candidateLevel?: JobDifficulty,
+  ): Promise<CandidateWrittenTest> {
     return request.post(
       `/api/candidate/applications/${applicationId}/written-test/start`,
-      {},
+      candidateLevel ? { candidateLevel } : {},
       { timeout: 180000 },
     );
   },
@@ -80,10 +87,14 @@ export const candidateApi = {
     );
   },
 
-  startInterview(applicationId: number, mode: ConcreteInterviewMode): Promise<CandidateInterviewState> {
+  startInterview(
+    applicationId: number,
+    mode: ConcreteInterviewMode,
+    candidateLevel?: JobDifficulty,
+  ): Promise<CandidateInterviewState> {
     return request.post(
       `/api/candidate/applications/${applicationId}/interview/start`,
-      { mode },
+      candidateLevel ? { mode, candidateLevel } : { mode },
       { timeout: 180000 },
     );
   },

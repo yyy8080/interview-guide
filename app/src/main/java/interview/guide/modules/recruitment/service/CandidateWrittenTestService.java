@@ -8,6 +8,7 @@ import interview.guide.modules.job.model.JobPositionEntity;
 import interview.guide.modules.job.service.JobPositionService;
 import interview.guide.modules.recruitment.model.ApplicationEntity;
 import interview.guide.modules.recruitment.model.ApplicationStatus;
+import interview.guide.modules.recruitment.model.CandidateLevels;
 import interview.guide.modules.recruitment.model.CandidateWrittenQuestionDTO;
 import interview.guide.modules.recruitment.model.CandidateWrittenTestDTO;
 import interview.guide.modules.recruitment.model.WrittenAnswersRequest;
@@ -57,17 +58,23 @@ public class CandidateWrittenTestService {
 
   // ========== 开始笔试 ==========
 
-  /**
-   * 开始笔试：校验邀请 → 事务外 AI 出题 → 事务内保存题目（幂等，重复调用返回已有笔试）
-   */
   public CandidateWrittenTestDTO start(Long candidateId, Long applicationId) {
+    return start(candidateId, applicationId, null);
+  }
+
+  /**
+   * 开始笔试：校验邀请 → 事务外 AI 按候选人定位出题 → 事务内保存题目（幂等，重复调用返回已有笔试）
+   */
+  public CandidateWrittenTestDTO start(Long candidateId, Long applicationId, String candidateLevel) {
+    String requestedLevel = CandidateLevels.normalizeOrNull(candidateLevel);
     requireOwned(candidateId, applicationId);
     if (writtenTestRepository.findByApplicationId(applicationId).isPresent()) {
       return getState(candidateId, applicationId);
     }
     String lockKey = "recruitment:written:start:" + applicationId;
     try {
-      redisService.executeWithLock(lockKey, 1, 300, TimeUnit.SECONDS, () -> doStart(candidateId, applicationId));
+      redisService.executeWithLock(lockKey, 1, 300, TimeUnit.SECONDS,
+          () -> doStart(candidateId, applicationId, requestedLevel));
     } catch (BusinessException e) {
       if (ErrorCode.INTERNAL_ERROR.getCode().equals(e.getCode()) && e.getMessage() != null
           && e.getMessage().startsWith("获取锁")) {
@@ -78,7 +85,7 @@ public class CandidateWrittenTestService {
     return getState(candidateId, applicationId);
   }
 
-  private Void doStart(Long candidateId, Long applicationId) {
+  private Void doStart(Long candidateId, Long applicationId, String requestedLevel) {
     if (writtenTestRepository.findByApplicationId(applicationId).isPresent()) {
       return null;
     }
@@ -88,7 +95,10 @@ public class CandidateWrittenTestService {
     if (!job.isWrittenTestEnabled()) {
       throw new BusinessException(ErrorCode.WRITTEN_TEST_NOT_AVAILABLE, "该岗位无需笔试");
     }
-    List<WrittenQuestion> questions = generator.generate(job, jobPositionService.readCategories(job));
+    String effectiveLevel = CandidateLevels.resolve(
+        requestedLevel != null ? requestedLevel : application.getCandidateLevel(),
+        job.getDifficulty());
+    List<WrittenQuestion> questions = generator.generate(job, jobPositionService.readCategories(job), effectiveLevel);
 
     transactionalExecutor.run(() -> {
       ApplicationEntity locked = applicationRepository.findByIdForUpdate(applicationId)
@@ -97,6 +107,7 @@ public class CandidateWrittenTestService {
       if (writtenTestRepository.findByApplicationId(applicationId).isPresent()) {
         return;
       }
+      locked.setCandidateLevel(effectiveLevel);
       LocalDateTime now = LocalDateTime.now();
       LocalDateTime deadline = now.plusMinutes(Math.max(5, job.getWrittenTimeLimitMinutes()));
       WrittenTestEntity test = new WrittenTestEntity();
@@ -114,7 +125,7 @@ public class CandidateWrittenTestService {
         locked.setInviteExpiresAt(minInviteExpiry);
       }
     });
-    log.info("候选人开始笔试: applicationId={}, questions={}", applicationId, questions.size());
+    log.info("候选人开始笔试: applicationId={}, level={}, questions={}", applicationId, effectiveLevel, questions.size());
     return null;
   }
 
@@ -132,6 +143,7 @@ public class CandidateWrittenTestService {
   public CandidateWrittenTestDTO getState(Long candidateId, Long applicationId) {
     ApplicationEntity application = requireOwned(candidateId, applicationId);
     JobPositionEntity job = jobPositionService.getEntity(application.getJobId());
+    String effectiveLevel = CandidateLevels.resolve(application.getCandidateLevel(), job.getDifficulty());
     Optional<WrittenTestEntity> found = writtenTestRepository.findByApplicationId(applicationId);
     if (found.isPresent() && isOverdue(found.get())) {
       submitAndGrade(found.get(), job.getLlmProvider());
@@ -140,8 +152,8 @@ public class CandidateWrittenTestService {
     String watermark = job.isProctorWatermark() ? CandidateInterviewService.watermarkText(application) : null;
     if (found.isEmpty()) {
       int planned = job.getWrittenSingleCount() + job.getWrittenMultiCount() + job.getWrittenFillCount();
-      return new CandidateWrittenTestDTO(applicationId, null, planned, List.of(), Map.of(), null, null, null,
-          watermark, job.isProctorAwayReminder());
+      return new CandidateWrittenTestDTO(applicationId, effectiveLevel, null, planned, List.of(), Map.of(), null,
+          null, null, watermark, job.isProctorAwayReminder());
     }
     WrittenTestEntity test = found.get();
     boolean inProgress = test.getStatus() == WrittenTestStatus.IN_PROGRESS;
@@ -151,9 +163,9 @@ public class CandidateWrittenTestService {
     Long remaining = inProgress
         ? Math.max(0, Duration.between(LocalDateTime.now(), test.getDeadlineAt()).toSeconds())
         : null;
-    return new CandidateWrittenTestDTO(applicationId, test.getStatus(), test.getTotalCount(), questions,
-        inProgress ? codec.readAnswers(test.getAnswersJson()) : Map.of(), test.getStartedAt(), test.getDeadlineAt(),
-        remaining, watermark, job.isProctorAwayReminder());
+    return new CandidateWrittenTestDTO(applicationId, effectiveLevel, test.getStatus(), test.getTotalCount(),
+        questions, inProgress ? codec.readAnswers(test.getAnswersJson()) : Map.of(), test.getStartedAt(),
+        test.getDeadlineAt(), remaining, watermark, job.isProctorAwayReminder());
   }
 
   // ========== 作答 ==========

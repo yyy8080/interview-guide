@@ -14,7 +14,7 @@ import { getErrorMessage } from '../../api/request';
 import { ROUTES } from '../../constants/routes';
 import { formatDateTime } from '../../utils/date';
 import { isCandidateAuthenticated } from '../../utils/candidateStorage';
-import { INTERVIEW_MODE_LABELS } from '../../types/job';
+import { INTERVIEW_MODE_LABELS, JOB_DIFFICULTY_LABELS } from '../../types/job';
 import {
   CANDIDATE_STAGE_LABELS,
   type CandidateApplication,
@@ -165,6 +165,14 @@ export default function CandidateApplicationsPage() {
                     <span className={`rounded-full px-3 py-0.5 text-xs font-medium ${STAGE_BADGE[app.stage]}`}>
                       {CANDIDATE_STAGE_LABELS[app.stage]}
                     </span>
+                    {app.candidateLevel && (
+                      <span
+                        data-testid={`my-app-level-${app.id}`}
+                        className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-700 dark:bg-slate-800 dark:text-slate-300"
+                      >
+                        定位：{JOB_DIFFICULTY_LABELS[app.candidateLevel]}
+                      </span>
+                    )}
                   </div>
                   <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500 dark:text-slate-400">
                     {app.department && <span>{app.department}</span>}

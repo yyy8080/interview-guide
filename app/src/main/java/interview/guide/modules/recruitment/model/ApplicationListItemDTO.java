@@ -10,6 +10,7 @@ public record ApplicationListItemDTO(
     String candidateName,
     String candidateEmail,
     String candidatePhone,
+    String candidateLevel,
     ApplicationStatus status,
     InterviewMode interviewMode,
     Integer screeningScore,

@@ -134,7 +134,7 @@ class CandidateWrittenTestServiceTest {
         new WrittenQuestion(0, WrittenQuestionType.SINGLE_CHOICE, "1+1=?",
             List.of("1", "2", "3"), List.of("B"), "", "基础")
     );
-    when(generator.generate(any(), any())).thenReturn(generated);
+    when(generator.generate(any(), any(), org.mockito.ArgumentMatchers.eq("senior"))).thenReturn(generated);
     when(applicationRepository.findByIdForUpdate(200L)).thenReturn(Optional.of(app));
     doAnswer(inv -> {
       ((Runnable) inv.getArgument(0)).run();
@@ -153,8 +153,10 @@ class CandidateWrittenTestServiceTest {
     when(writtenTestRepository.findByApplicationId(200L))
         .thenAnswer(inv -> Optional.ofNullable(savedRef.get()));
 
-    CandidateWrittenTestDTO started = service.start(10L, 200L);
+    CandidateWrittenTestDTO started = service.start(10L, 200L, "senior");
     assertThat(started.status()).isEqualTo(WrittenTestStatus.IN_PROGRESS);
+    assertThat(started.candidateLevel()).isEqualTo("senior");
+    assertThat(app.getCandidateLevel()).isEqualTo("senior");
     assertThat(started.questions()).hasSize(1);
     assertThat(started.watermarkText()).isEqualTo("张三 · #200");
     assertThat(app.getInviteExpiresAt()).isAfter(nearExpiry.plusHours(1));

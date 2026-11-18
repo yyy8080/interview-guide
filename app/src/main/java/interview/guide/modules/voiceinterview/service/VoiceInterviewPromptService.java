@@ -37,14 +37,19 @@ public class VoiceInterviewPromptService {
             """;
 
     public String generateSystemPromptWithContext(String skillId, String resumeText) {
-        return generateSystemPromptWithContext(skillId, resumeText, null);
+        return generateSystemPromptWithContext(skillId, resumeText, null, null);
+    }
+
+    public String generateSystemPromptWithContext(String skillId, String resumeText, String customJdText) {
+        return generateSystemPromptWithContext(skillId, resumeText, customJdText, null);
     }
 
     /**
      * 生成系统提示词；customJdText 非空时附加岗位 JD（招聘场景），
-     * skillId 为 custom 时不加载 Skill 工具，改用 JD 驱动的面试官设定。
+     * difficulty 非空时注入面试者定位（初级 / 中级 / 高级）对应的出题深度要求。
      */
-    public String generateSystemPromptWithContext(String skillId, String resumeText, String customJdText) {
+    public String generateSystemPromptWithContext(String skillId, String resumeText, String customJdText,
+                                                  String difficulty) {
         StringBuilder prompt = new StringBuilder();
         boolean hasJd = customJdText != null && !customJdText.isBlank();
         boolean customSkill = "custom".equals(skillId);
@@ -53,6 +58,11 @@ public class VoiceInterviewPromptService {
             prompt.append(CUSTOM_JD_INSTRUCTION);
         } else if (skillId != null && !skillId.isBlank() && !customSkill) {
             prompt.append(String.format(SKILL_TOOL_INSTRUCTION, skillId, skillId));
+        }
+
+        if (difficulty != null && !difficulty.isBlank()) {
+            prompt.append("\n\n【面试者定位与出题深度要求】\n")
+                .append(describeVoiceDifficulty(difficulty));
         }
 
         if (hasJd) {
@@ -72,5 +82,13 @@ public class VoiceInterviewPromptService {
 
         prompt.append(PromptSecurityConstants.ANTI_INJECTION_INSTRUCTION);
         return prompt.toString();
+    }
+
+    private static String describeVoiceDifficulty(String difficulty) {
+        return switch (difficulty.trim().toLowerCase()) {
+            case "junior" -> "当前面试者自选定位为【初级】（0-1年经验）。请围绕核心基础概念、常用技术栈基本用法与简历中的具体实现提问，追问保持温和引导，避免超大规模分布式架构或偏门源码深挖。";
+            case "senior" -> "当前面试者自选定位为【高级】（3年以上经验）。请围绕底层核心原理、系统架构设计权衡、高并发高可用方案、性能瓶颈调优与复杂故障排查提问，追问直击边界场景与工程取舍，减少纯概念背诵题。";
+            default -> "当前面试者自选定位为【中级】（1-3年经验）。请围绕组件底层工作原理、并发/事务/缓存/索引机制、工程实践与常见问题排障提问，考察知其然更知其所以然。";
+        };
     }
 }

@@ -14,6 +14,7 @@ public record CandidateApplicationDTO(
     String department,
     String location,
     CandidateStage stage,
+    String candidateLevel,
     List<InterviewMode> availableModes,
     InterviewMode interviewMode,
     Integer questionCount,

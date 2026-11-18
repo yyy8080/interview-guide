@@ -138,6 +138,8 @@ public class AdminApplicationService {
       return new ApplicationListItemDTO(
           app.getId(), app.getJobId(), job != null ? job.getTitle() : "（岗位已删除）",
           app.getCandidateName(), candidate != null ? candidate.getEmail() : null, app.getCandidatePhone(),
+          interview.guide.modules.recruitment.model.CandidateLevels.resolve(
+              app.getCandidateLevel(), job != null ? job.getDifficulty() : null),
           app.getStatus(), app.getInterviewMode(), app.getScreeningScore(), app.getWrittenScore(), app.getAiScore(),
           app.getAiDecision(), app.getProctorRiskScore(), app.getProctorRiskLevel(),
           app.getSubmittedAt(), app.getUpdatedAt());
@@ -196,7 +198,10 @@ public class AdminApplicationService {
         app.getId(), app.getStatus(),
         app.getCandidateId(), app.getCandidateName(), candidate != null ? candidate.getEmail() : null,
         app.getCandidatePhone(),
+        interview.guide.modules.recruitment.model.CandidateLevels.resolve(
+            app.getCandidateLevel(), job != null ? job.getDifficulty() : null),
         app.getJobId(), job != null ? job.getTitle() : "（岗位已删除）",
+        job != null ? job.getDifficulty() : null,
         job != null ? job.getAiPassThreshold() : null, job != null ? job.getScreeningThreshold() : null,
         app.getResumeId(), resume != null ? resume.getOriginalFilename() : null,
         resume != null ? resume.getResumeText() : null,

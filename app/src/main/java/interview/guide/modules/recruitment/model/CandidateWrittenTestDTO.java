@@ -14,6 +14,7 @@ import java.util.Map;
  */
 public record CandidateWrittenTestDTO(
     Long applicationId,
+    String candidateLevel,
     WrittenTestStatus status,
     int totalQuestions,
     List<CandidateWrittenQuestionDTO> questions,

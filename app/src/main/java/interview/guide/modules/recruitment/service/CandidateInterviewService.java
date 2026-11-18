@@ -24,6 +24,7 @@ import interview.guide.modules.recruitment.model.ApplicationStatus;
 import interview.guide.modules.recruitment.model.CandidateAnswerRequest;
 import interview.guide.modules.recruitment.model.CandidateAnswerResponse;
 import interview.guide.modules.recruitment.model.CandidateInterviewDTO;
+import interview.guide.modules.recruitment.model.CandidateLevels;
 import interview.guide.modules.recruitment.model.CandidateQuestionDTO;
 import interview.guide.modules.recruitment.model.OperatorType;
 import interview.guide.modules.recruitment.model.ProctorEventEntity;
@@ -95,9 +96,17 @@ public class CandidateInterviewService {
    * 开始在线面试：校验邀请 → 事务外创建面试会话（含 LLM 出题）→ 事务内写回会话并进入面试中
    */
   public CandidateInterviewDTO start(Long candidateId, Long applicationId, InterviewMode mode) {
+    return start(candidateId, applicationId, mode, null);
+  }
+
+  /**
+   * 开始在线面试：校验邀请 → 事务外创建面试会话（按候选人自选定位出题）→ 事务内写回会话并进入面试中
+   */
+  public CandidateInterviewDTO start(Long candidateId, Long applicationId, InterviewMode mode, String candidateLevel) {
     if (mode == null || mode == InterviewMode.BOTH) {
       throw new BusinessException(ErrorCode.BAD_REQUEST, "请选择文字面试或语音面试");
     }
+    String requestedLevel = CandidateLevels.normalizeOrNull(candidateLevel);
     ApplicationEntity current = requireOwned(candidateId, applicationId);
     if (current.getStatus() == ApplicationStatus.INTERVIEWING) {
       return getState(candidateId, applicationId);
@@ -105,7 +114,7 @@ public class CandidateInterviewService {
     String lockKey = "recruitment:interview:start:" + applicationId;
     try {
       redisService.executeWithLock(lockKey, 1, 300, TimeUnit.SECONDS,
-          () -> doStart(candidateId, applicationId, mode));
+          () -> doStart(candidateId, applicationId, mode, requestedLevel));
     } catch (BusinessException e) {
       if (ErrorCode.INTERNAL_ERROR.getCode().equals(e.getCode()) && e.getMessage() != null
           && e.getMessage().startsWith("获取锁")) {
@@ -116,7 +125,7 @@ public class CandidateInterviewService {
     return getState(candidateId, applicationId);
   }
 
-  private Void doStart(Long candidateId, Long applicationId, InterviewMode mode) {
+  private Void doStart(Long candidateId, Long applicationId, InterviewMode mode, String requestedLevel) {
     ApplicationEntity application = requireOwned(candidateId, applicationId);
     if (application.getStatus() == ApplicationStatus.INTERVIEWING) {
       return null;
@@ -128,18 +137,22 @@ public class CandidateInterviewService {
       throw new BusinessException(ErrorCode.INTERVIEW_MODE_NOT_ALLOWED);
     }
 
+    String effectiveLevel = interview.guide.modules.recruitment.model.CandidateLevels.resolve(
+        requestedLevel != null ? requestedLevel : application.getCandidateLevel(),
+        job.getDifficulty());
+
     LocalDateTime now = LocalDateTime.now();
     String textSessionId = null;
     Long voiceSessionId = null;
     LocalDateTime deadline;
     if (mode == InterviewMode.TEXT) {
-      textSessionId = createTextSession(application, job);
+      textSessionId = createTextSession(application, job, effectiveLevel);
       deadline = job.getTimeLimitMinutes() != null && job.getTimeLimitMinutes() > 0
           ? now.plusMinutes(job.getTimeLimitMinutes())
           : now.plus(TEXT_HARD_LIMIT);
     } else {
       int planned = plannedVoiceMinutes(job);
-      voiceSessionId = createVoiceSession(application, job, planned);
+      voiceSessionId = createVoiceSession(application, job, planned, effectiveLevel);
       deadline = now.plusMinutes(planned).plus(VOICE_GRACE);
     }
 
@@ -149,14 +162,16 @@ public class CandidateInterviewService {
       ApplicationEntity locked = applicationRepository.findByIdForUpdate(applicationId)
           .orElseThrow(() -> new BusinessException(ErrorCode.APPLICATION_NOT_FOUND));
       assertStartable(locked);
+      locked.setCandidateLevel(effectiveLevel);
       locked.setInterviewMode(mode);
       locked.setInterviewSessionId(finalTextSessionId);
       locked.setVoiceSessionId(finalVoiceSessionId);
       locked.setInterviewDeadlineAt(deadline);
       stateMachine.transit(locked, ApplicationStatus.INTERVIEWING, OperatorType.CANDIDATE, candidateId,
-          "候选人开始" + (mode == InterviewMode.TEXT ? "文字" : "语音") + "面试");
+          "候选人开始" + (mode == InterviewMode.TEXT ? "文字" : "语音")
+              + "面试（定位：" + interview.guide.modules.recruitment.model.CandidateLevels.label(effectiveLevel) + "）");
     });
-    log.info("候选人开始在线面试: applicationId={}, mode={}", applicationId, mode);
+    log.info("候选人开始在线面试: applicationId={}, mode={}, level={}", applicationId, mode, effectiveLevel);
     return null;
   }
 
@@ -179,13 +194,25 @@ public class CandidateInterviewService {
     }
   }
 
-  private String createTextSession(ApplicationEntity application, JobPositionEntity job) {
+  private String createTextSession(ApplicationEntity application, JobPositionEntity job, String effectiveLevel) {
     int questionCount = clamp(job.getQuestionCount() != null ? job.getQuestionCount() : DEFAULT_QUESTION_COUNT,
         3, 20);
     InterviewSessionDTO session;
     if (job.getKnowledgeBaseId() != null) {
-      session = knowledgeBaseInterviewService.createSession(new CreateKnowledgeBaseInterviewRequest(
-          job.getKnowledgeBaseId(), null, job.getDifficulty(), questionCount, 0, job.getLlmProvider()));
+      try {
+        session = knowledgeBaseInterviewService.createSession(new CreateKnowledgeBaseInterviewRequest(
+            job.getKnowledgeBaseId(), null, effectiveLevel, questionCount, 0, job.getLlmProvider()));
+      } catch (BusinessException e) {
+        if (ErrorCode.INTERVIEW_QUESTION_INSUFFICIENT.getCode().equals(e.getCode())
+            && job.getDifficulty() != null && !job.getDifficulty().equals(effectiveLevel)) {
+          log.warn("知识库在候选人自选定位 [{}] 下题量不足，回退按岗位默认难度 [{}] 抽题: jobId={}",
+              effectiveLevel, job.getDifficulty(), job.getId());
+          session = knowledgeBaseInterviewService.createSession(new CreateKnowledgeBaseInterviewRequest(
+              job.getKnowledgeBaseId(), null, job.getDifficulty(), questionCount, 0, job.getLlmProvider()));
+        } else {
+          throw e;
+        }
+      }
     } else {
       ResumeEntity resume = resumeRepository.findById(application.getResumeId()).orElse(null);
       boolean custom = InterviewSkillService.CUSTOM_SKILL_ID.equals(job.getSkillId());
@@ -196,7 +223,7 @@ public class CandidateInterviewService {
           Boolean.TRUE,
           job.getLlmProvider(),
           job.getSkillId(),
-          job.getDifficulty(),
+          effectiveLevel,
           custom ? jobPositionService.readCategories(job) : null,
           custom ? job.getJdText() : null,
           "application-" + application.getId()));
@@ -204,10 +231,11 @@ public class CandidateInterviewService {
     return session.sessionId();
   }
 
-  private Long createVoiceSession(ApplicationEntity application, JobPositionEntity job, int plannedMinutes) {
+  private Long createVoiceSession(ApplicationEntity application, JobPositionEntity job, int plannedMinutes,
+                                  String effectiveLevel) {
     SessionResponseDTO response = voiceInterviewService.createSession(CreateSessionRequest.builder()
         .skillId(job.getSkillId())
-        .difficulty(job.getDifficulty())
+        .difficulty(effectiveLevel)
         .customJdText(job.getJdText())
         .resumeId(application.getResumeId())
         .introEnabled(true)
@@ -231,6 +259,8 @@ public class CandidateInterviewService {
   public CandidateInterviewDTO getState(Long candidateId, Long applicationId) {
     ApplicationEntity application = requireOwned(candidateId, applicationId);
     JobPositionEntity job = jobPositionService.getEntity(application.getJobId());
+    String effectiveLevel = interview.guide.modules.recruitment.model.CandidateLevels.resolve(
+        application.getCandidateLevel(), job.getDifficulty());
     boolean interviewing = application.getStatus() == ApplicationStatus.INTERVIEWING;
     Long remaining = null;
     if (interviewing && application.getInterviewDeadlineAt() != null) {
@@ -262,6 +292,7 @@ public class CandidateInterviewService {
     return new CandidateInterviewDTO(
         application.getId(),
         job.getTitle(),
+        effectiveLevel,
         application.getInterviewMode(),
         application.getStatus().toCandidateStage(),
         application.getInterviewStartedAt(),

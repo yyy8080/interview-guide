@@ -1,4 +1,4 @@
-import type { ConcreteInterviewMode, InterviewMode } from './job';
+import type { ConcreteInterviewMode, InterviewMode, JobDifficulty } from './job';
 
 export interface PageResult<T> {
   items: T[];
@@ -61,6 +61,7 @@ export interface CandidateApplication {
   jobTitle: string;
   department: string | null;
   location: string | null;
+  candidateLevel?: JobDifficulty;
   stage: CandidateStage;
   availableModes: ConcreteInterviewMode[];
   interviewMode: ConcreteInterviewMode | null;
@@ -106,6 +107,7 @@ export interface CandidateWrittenQuestion {
 
 export interface CandidateWrittenTest {
   applicationId: number;
+  candidateLevel?: JobDifficulty;
   status: WrittenTestStatus | null;
   totalQuestions: number;
   questions: CandidateWrittenQuestion[];
@@ -120,6 +122,7 @@ export interface CandidateWrittenTest {
 export interface CandidateInterviewState {
   applicationId: number;
   jobTitle: string;
+  candidateLevel?: JobDifficulty;
   mode: ConcreteInterviewMode | null;
   stage: CandidateStage;
   startedAt: string | null;
@@ -284,6 +287,7 @@ export interface ApplicationListItem {
   candidateName: string;
   candidateEmail: string | null;
   candidatePhone: string | null;
+  candidateLevel?: JobDifficulty;
   status: ApplicationStatus;
   interviewMode: InterviewMode | null;
   screeningScore: number | null;
@@ -413,8 +417,10 @@ export interface ApplicationDetail {
   candidateName: string;
   candidateEmail: string | null;
   candidatePhone: string | null;
+  candidateLevel?: JobDifficulty;
   jobId: number;
   jobTitle: string;
+  jobDifficulty?: JobDifficulty | null;
   aiPassThreshold: number | null;
   screeningThreshold: number | null;
   resumeId: number;

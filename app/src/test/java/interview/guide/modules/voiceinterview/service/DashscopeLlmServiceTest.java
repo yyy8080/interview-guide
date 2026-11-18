@@ -90,7 +90,7 @@ class DashscopeLlmServiceTest {
     ChatClient.CallResponseSpec callResponse = mock(ChatClient.CallResponseSpec.class);
     ChatResponse chatResponse = mock(ChatResponse.class);
     Generation generation = mock(Generation.class);
-    when(promptService.generateSystemPromptWithContext(anyString(), isNull()))
+    when(promptService.generateSystemPromptWithContext(anyString(), isNull(), isNull(), anyString()))
         .thenReturn("系统提示");
     when(llmProviderRegistry.getVoiceChatClient("dashscope")).thenReturn(chatClient);
     when(chatClient.prompt()).thenReturn(requestSpec);

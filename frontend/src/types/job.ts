@@ -87,6 +87,7 @@ export interface PublicJob {
 
 export interface PublicJobDetail extends PublicJob {
   jdText: string;
+  difficulty?: JobDifficulty;
   questionCount: number;
   timeLimitMinutes: number | null;
 }
@@ -115,3 +116,29 @@ export const JOB_DIFFICULTY_LABELS: Record<JobDifficulty, string> = {
   mid: '中级',
   senior: '高级',
 };
+
+export const CANDIDATE_LEVEL_OPTIONS: {
+  value: JobDifficulty;
+  label: string;
+  badge: string;
+  desc: string;
+}[] = [
+  {
+    value: 'junior',
+    label: '初级',
+    badge: '0-1 年经验',
+    desc: '侧重核心基础概念、常用技术栈与基本开发应用',
+  },
+  {
+    value: 'mid',
+    label: '中级',
+    badge: '1-3 年经验',
+    desc: '侧重组件底层原理、工程实践与常见性能优化',
+  },
+  {
+    value: 'senior',
+    label: '高级',
+    badge: '3 年+经验',
+    desc: '侧重核心机制深度、系统架构权衡与复杂排障调优',
+  },
+];

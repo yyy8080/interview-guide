@@ -198,11 +198,76 @@ class CandidateInterviewServiceTest {
       return null;
     }).when(stateMachine).transit(any(), any(), any(), any(), any());
 
-    CandidateInterviewDTO dto = service.start(10L, 101L, InterviewMode.VOICE);
+    CandidateInterviewDTO dto = service.start(10L, 101L, InterviewMode.VOICE, "senior");
 
     assertThat(dto.mode()).isEqualTo(InterviewMode.VOICE);
+    assertThat(dto.candidateLevel()).isEqualTo("senior");
+    assertThat(app.getCandidateLevel()).isEqualTo("senior");
     assertThat(dto.voiceSessionId()).isEqualTo(888L);
     assertThat(dto.voiceWsPath()).isEqualTo("/ws/candidate/voice-interview/888");
+    ArgumentCaptor<interview.guide.modules.voiceinterview.dto.CreateSessionRequest> reqCaptor =
+        ArgumentCaptor.forClass(interview.guide.modules.voiceinterview.dto.CreateSessionRequest.class);
+    verify(voiceInterviewService).createSession(reqCaptor.capture());
+    assertThat(reqCaptor.getValue().getDifficulty()).isEqualTo("senior");
+  }
+
+  @Test
+  @DisplayName("文字面试按候选人自选定位出题；绑定题库且所选定位题目不足时平滑降级至岗位默认难度")
+  void appliesCandidateLevelToTextInterviewAndFallsBackWhenKbInsufficient() {
+    ApplicationEntity app = new ApplicationEntity();
+    app.setId(106L);
+    app.setCandidateId(10L);
+    app.setJobId(11L);
+    app.setResumeId(51L);
+    app.setCandidateLevel("mid");
+    app.setStatus(ApplicationStatus.INTERVIEW_INVITED);
+    app.setInviteExpiresAt(LocalDateTime.now().plusDays(2));
+
+    JobPositionEntity kbJob = new JobPositionEntity();
+    kbJob.setId(11L);
+    kbJob.setTitle("后端研发");
+    kbJob.setDifficulty("mid");
+    kbJob.setInterviewMode(InterviewMode.TEXT);
+    kbJob.setKnowledgeBaseId(99L);
+    kbJob.setQuestionCount(5);
+    kbJob.setTimeLimitMinutes(30);
+
+    interview.guide.modules.resume.model.ResumeEntity resume = new interview.guide.modules.resume.model.ResumeEntity();
+    resume.setId(51L);
+    resume.setResumeText("熟悉 Spring Boot 与 Redis");
+
+    InterviewQuestionDTO q0 = InterviewQuestionDTO.create(0, "请介绍 Redis 持久化机制", "TECH", "Redis");
+    InterviewSessionDTO sessionDTO = new InterviewSessionDTO(
+        "sess-106", "熟悉 Spring Boot 与 Redis", 5, 0, List.of(q0), SessionStatus.IN_PROGRESS, 51L, "mid");
+
+    when(applicationRepository.findByIdAndCandidateId(106L, 10L)).thenReturn(Optional.of(app));
+    when(applicationRepository.findByIdForUpdate(106L)).thenReturn(Optional.of(app));
+    when(jobPositionService.getEntity(11L)).thenReturn(kbJob);
+    when(redisService.executeWithLock(any(), anyLong(), anyLong(), any(), any()))
+        .thenAnswer(inv -> ((RedisService.LockedOperation<?>) inv.getArgument(4)).execute());
+    doAnswer(inv -> {
+      ((Runnable) inv.getArgument(0)).run();
+      return null;
+    }).when(transactionalExecutor).run(any());
+    when(knowledgeBaseInterviewService.createSession(
+        new interview.guide.modules.knowledgebase.model.CreateKnowledgeBaseInterviewRequest(99L, null, "junior", 5, 0, null)))
+        .thenThrow(new BusinessException(ErrorCode.INTERVIEW_QUESTION_INSUFFICIENT));
+    when(knowledgeBaseInterviewService.createSession(
+        new interview.guide.modules.knowledgebase.model.CreateKnowledgeBaseInterviewRequest(99L, null, "mid", 5, 0, null)))
+        .thenReturn(sessionDTO);
+    when(interviewSessionService.getSession("sess-106")).thenReturn(sessionDTO);
+    when(interviewSessionService.getCurrentQuestion("sess-106")).thenReturn(q0);
+    doAnswer(inv -> {
+      ApplicationEntity target = inv.getArgument(0);
+      target.setStatus(inv.getArgument(1));
+      target.setInterviewStartedAt(LocalDateTime.now());
+      return null;
+    }).when(stateMachine).transit(any(), any(), any(), any(), any());
+
+    CandidateInterviewDTO dto = service.start(10L, 106L, InterviewMode.TEXT, "junior");
+    assertThat(dto.candidateLevel()).isEqualTo("junior");
+    assertThat(dto.currentQuestion()).isNotNull();
+    assertThat(dto.currentQuestion().question()).isEqualTo("请介绍 Redis 持久化机制");
   }
 
   @Test

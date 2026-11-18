@@ -115,8 +115,12 @@ public class CandidateDecisionService {
   private DecisionResult invokeLlm(ApplicationEntity application, JobPositionEntity job, ScreeningResult screening,
                                    EvaluationSnapshot snapshot, int threshold, Map<String, Long> proctorCounts,
                                    ProctorRiskAssessment proctorRisk, WrittenTestSummary written) {
+    String effectiveLevel = interview.guide.modules.recruitment.model.CandidateLevels.resolve(
+        application.getCandidateLevel(), job.getDifficulty());
     Map<String, Object> variables = new HashMap<>();
     variables.put("jobTitle", job.getTitle());
+    variables.put("jobDifficulty", interview.guide.modules.recruitment.model.CandidateLevels.label(job.getDifficulty()));
+    variables.put("candidateLevel", interview.guide.modules.recruitment.model.CandidateLevels.label(effectiveLevel));
     variables.put("passThreshold", threshold);
     variables.put("jdText", ResumeScreeningService.truncate(job.getJdText(), 6_000));
     variables.put("screeningSummary", describeScreening(screening));

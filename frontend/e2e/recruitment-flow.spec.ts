@@ -29,6 +29,8 @@ test.describe('企业招聘全流程（候选人门户 + HR 后台审核与邮�
       ]),
     );
 
+    let selectedLevel: 'junior' | 'mid' | 'senior' = 'mid';
+
     await page.route('**/api/public/jobs/9', route =>
       ok(route, {
         id: 9,
@@ -39,6 +41,7 @@ test.describe('企业招聘全流程（候选人门户 + HR 后台审核与邮�
         headcount: 2,
         salaryRange: '30K-45K',
         jdText: '负责核心交易系统高可用架构设计与性能优化。',
+        difficulty: 'mid',
         interviewMode: 'BOTH',
         questionCount: 2,
         timeLimitMinutes: 30,
@@ -67,6 +70,7 @@ test.describe('企业招聘全流程（候选人门户 + HR 后台审核与邮�
       jobTitle: '高级 Java 后端工程师',
       department: '基础架构部',
       location: '上海',
+      candidateLevel: selectedLevel,
       stage,
       availableModes: ['TEXT', 'VOICE'],
       interviewMode: started ? 'TEXT' : null,
@@ -93,6 +97,10 @@ test.describe('企业招聘全流程（候选人门户 + HR 后台审核与邮�
 
     await page.route('**/api/candidate/jobs/9/apply', route => {
       capturedCandidateToken = route.request().headers()['x-candidate-token'];
+      const postBody = route.request().postData() ?? '';
+      expect(postBody).toContain('name="candidateLevel"');
+      expect(postBody).toContain('senior');
+      selectedLevel = 'senior';
       stage = 'SCREENING';
       return ok(route, buildApp());
     });
@@ -108,6 +116,7 @@ test.describe('企业招聘全流程（候选人门户 + HR 后台审核与邮�
       ok(route, {
         applicationId: 501,
         jobTitle: '高级 Java 后端工程师',
+        candidateLevel: selectedLevel,
         mode: started ? 'TEXT' : null,
         stage: started ? 'INTERVIEWING' : 'INTERVIEW_PENDING',
         startedAt: started ? '2026-11-17T10:05:00' : null,
@@ -126,12 +135,14 @@ test.describe('企业招聘全流程（候选人门户 + HR 后台审核与邮�
     );
 
     await page.route('**/api/candidate/applications/501/interview/start', async route => {
-      const body = route.request().postDataJSON() as { mode: string };
+      const body = route.request().postDataJSON() as { mode: string; candidateLevel?: string };
       expect(body.mode).toBe('TEXT');
+      expect(body.candidateLevel).toBe('senior');
       started = true;
       await ok(route, {
         applicationId: 501,
         jobTitle: '高级 Java 后端工程师',
+        candidateLevel: 'senior',
         mode: 'TEXT',
         stage: 'INTERVIEWING',
         startedAt: '2026-11-17T10:05:00',
@@ -199,10 +210,12 @@ test.describe('企业招聘全流程（候选人门户 + HR 后台审核与邮�
     await page.getByPlaceholder('请输入验证码').fill('886622');
     await page.getByRole('button', { name: '验证并继续' }).click();
 
-    // 3. 填写信息、上传简历并勾选同意后提交
+    // 3. 填写信息、自主选择「高级」应聘定位、上传简历并勾选同意后提交
     await expect(page.getByText('当前验证邮箱：candidate@example.com')).toBeVisible();
+    await expect(page.getByText('建议定位：中级')).toBeVisible();
     await page.getByPlaceholder('请输入真实姓名').fill('王小明');
     await page.getByPlaceholder('便于 HR 联系线下面试').fill('13912345678');
+    await page.getByTestId('apply-level-senior').click();
     await page.locator('input[type="file"]').setInputFiles({
       name: 'wangxiaoming-cv.pdf',
       mimeType: 'application/pdf',
@@ -211,20 +224,23 @@ test.describe('企业招聘全流程（候选人门户 + HR 后台审核与邮�
     await page.locator('input[type="checkbox"]').check();
     await page.getByRole('button', { name: '提交简历' }).click();
 
-    // 4. 跳转我的投递（默认开启初筛 → 简历筛选中），确认携带 X-Candidate-Token
+    // 4. 跳转我的投递（默认开启初筛 → 简历筛选中），确认携带 X-Candidate-Token 与自选定位徽章
     await expect(page.getByRole('heading', { name: '我的投递' })).toBeVisible();
     await expect(page.getByText('简历筛选中')).toBeVisible();
+    await expect(page.getByTestId('my-app-level-501')).toContainText('定位：高级');
     expect(capturedCandidateToken).toBe('cand-jwt-token-001');
 
-    // 5. 模拟 AI 初筛通过后刷新 → 进入在线面试并同时展示文字与语音自选卡片
+    // 5. 模拟 AI 初筛通过后刷新 → 进入在线面试并同时展示定位与文字/语音自选卡片
     stage = 'INTERVIEW_PENDING';
     await page.getByRole('button', { name: '刷新进度' }).click();
     await page.getByRole('link', { name: '开始在线面试' }).click();
+    await expect(page.getByTestId('interview-level-senior')).toHaveAttribute('aria-pressed', 'true');
     await expect(page.getByText('文字问答面试')).toBeVisible();
     await expect(page.getByText('实时语音面试')).toBeVisible();
     await page.getByRole('button', { name: '开始在线面试' }).click();
 
     // 6. 回答两道脱敏题目完成在线面试
+    await expect(page.getByTestId('interview-active-level')).toContainText('定位：高级');
     await expect(page.getByText('请说明分布式锁续期原理')).toBeVisible();
     await page.getByPlaceholder(/请输入您的回答/).fill('通过 WatchDog 定时刷新锁过期时间。');
     await page.getByRole('button', { name: '提交本题，进入下一题' }).click();
@@ -537,6 +553,8 @@ test.describe('企业招聘全流程（候选人门户 + HR 后台审核与邮�
     let writtenStatus: 'IN_PROGRESS' | 'GRADED' | null = null;
     let submittedAnswers: Record<string, string[]> | null = null;
 
+    let writtenLevel: 'junior' | 'mid' | 'senior' = 'mid';
+
     await page.route('**/api/candidate/applications/602', route =>
       ok(route, {
         id: 602,
@@ -544,6 +562,7 @@ test.describe('企业招聘全流程（候选人门户 + HR 后台审核与邮�
         jobTitle: '后端研发工程师',
         department: '技术部',
         location: '杭州',
+        candidateLevel: writtenLevel,
         stage: 'INTERVIEW_PENDING',
         availableModes: ['TEXT', 'VOICE'],
         interviewMode: null,
@@ -562,6 +581,7 @@ test.describe('企业招聘全流程（候选人门户 + HR 后台审核与邮�
       ok(route, {
         applicationId: 602,
         jobTitle: '后端研发工程师',
+        candidateLevel: writtenLevel,
         mode: null,
         stage: 'INTERVIEW_PENDING',
         startedAt: null,
@@ -584,9 +604,13 @@ test.describe('企业招聘全流程（候选人门户 + HR 后台审核与邮�
     );
 
     await page.route('**/api/candidate/applications/602/written-test/start', route => {
+      const body = route.request().postDataJSON() as { candidateLevel?: string };
+      expect(body.candidateLevel).toBe('junior');
+      writtenLevel = 'junior';
       writtenStatus = 'IN_PROGRESS';
       return ok(route, {
         applicationId: 602,
+        candidateLevel: 'junior',
         status: 'IN_PROGRESS',
         totalQuestions: 3,
         questions: [
@@ -629,6 +653,7 @@ test.describe('企业招聘全流程（候选人门户 + HR 后台审核与邮�
       writtenStatus = 'GRADED';
       await ok(route, {
         applicationId: 602,
+        candidateLevel: writtenLevel,
         status: 'GRADED',
         totalQuestions: 3,
         questions: [],
@@ -643,14 +668,16 @@ test.describe('企业招聘全流程（候选人门户 + HR 后台审核与邮�
 
     await page.route('**/api/candidate/applications/602/proctor-events', route => ok(route, null));
 
-    // 1. 候选人进入面试链接，首先看到独立「在线笔试」环节
+    // 1. 候选人进入面试链接，首先看到独立「在线笔试」环节与定位选择
     await page.goto('/careers/applications/602/interview');
     await expect(page.getByTestId('written-intro-card')).toBeVisible();
     await expect(page.getByText('环节 1 / 2 · 在线笔试')).toBeVisible();
+    await page.getByTestId('written-level-junior').click();
 
     // 2. 开始笔试，依次作答单选、多选与填空题并交卷
     await page.getByTestId('start-written-btn').click();
     await expect(page.getByTestId('written-active-panel')).toBeVisible();
+    await expect(page.getByTestId('written-active-level')).toContainText('定位：初级');
     await page.getByTestId('written-opt-0-B').click();
     await page.getByTestId('written-opt-1-A').click();
     await page.getByTestId('written-opt-1-C').click();
@@ -663,12 +690,13 @@ test.describe('企业招聘全流程（候选人门户 + HR 后台审核与邮�
       '2': ['TCP 6379'],
     });
 
-    // 3. 交卷后自动进入第 2 环节：选择形式开始 AI 面试
+    // 3. 交卷后自动进入第 2 环节：定位继承为「初级」，可选择形式开始 AI 面试
     await expect(page.getByTestId('written-finished-banner')).toBeVisible();
+    await expect(page.getByTestId('interview-level-junior')).toHaveAttribute('aria-pressed', 'true');
     await expect(page.getByText('文字问答面试')).toBeVisible();
     await expect(page.getByText('实时语音面试')).toBeVisible();
 
-    // 4. HR 后台查看笔试逐题判分（含 AI 语义判分标记）与综合加权分
+    // 4. HR 后台查看候选人自选定位、笔试逐题判分（含 AI 语义判分标记）与综合加权分
     await seedAdminAuth(page, 'ADMIN');
     await page.route('**/api/admin/applications/602', route =>
       ok(route, {
@@ -678,8 +706,10 @@ test.describe('企业招聘全流程（候选人门户 + HR 后台审核与邮�
         candidateName: '李华',
         candidateEmail: 'written@example.com',
         candidatePhone: null,
+        candidateLevel: 'junior',
         jobId: 12,
         jobTitle: '后端研发工程师',
+        jobDifficulty: 'mid',
         aiPassThreshold: 70,
         screeningThreshold: 60,
         resumeId: 301,
@@ -767,6 +797,7 @@ test.describe('企业招聘全流程（候选人门户 + HR 后台审核与邮�
     );
 
     await page.goto('/admin/applications/602');
+    await expect(page.getByTestId('candidate-level-badge')).toContainText('自选定位：初级（岗位建议：中级）');
     await expect(page.getByTestId('written-weighted-summary')).toContainText('综合分 86 分 = 笔试 100 分 × 30% + 面试 80 分 × 70%');
     await expect(page.getByTestId('written-detail-card')).toContainText('100 分（答对 3 / 3 题）');
     await expect(page.getByTestId('written-detail-card')).toContainText('AI 语义判分');

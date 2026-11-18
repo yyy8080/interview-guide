@@ -1,6 +1,7 @@
-## 岗位信息
+## 岗位信息与候选人定位
 岗位名称：{jobTitle}
-岗位级别：{difficulty}
+候选人自选定位：{difficulty}
+定位命题要求：{difficultyGuidance}
 
 ---岗位JD开始---
 {jdText}

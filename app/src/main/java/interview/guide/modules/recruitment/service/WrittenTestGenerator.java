@@ -70,17 +70,24 @@ public class WrittenTestGenerator {
     this.outputConverter = new BeanOutputConverter<>(GeneratedWrittenTest.class);
   }
 
-  /**
-   * 生成笔试题；LLM 调用失败或没有任何合规题目时抛出 WRITTEN_TEST_GENERATION_FAILED
-   */
   public List<WrittenQuestion> generate(JobPositionEntity job, List<CategoryDTO> categories) {
+    return generate(job, categories, job.getDifficulty());
+  }
+
+  /**
+   * 按指定应聘定位生成笔试题；LLM 调用失败或没有任何合规题目时抛出 WRITTEN_TEST_GENERATION_FAILED
+   */
+  public List<WrittenQuestion> generate(JobPositionEntity job, List<CategoryDTO> categories, String difficulty) {
     int single = Math.max(0, job.getWrittenSingleCount());
     int multi = Math.max(0, job.getWrittenMultiCount());
     int fill = Math.max(0, job.getWrittenFillCount());
+    String effectiveDifficulty = interview.guide.modules.recruitment.model.CandidateLevels.resolve(
+        difficulty, job.getDifficulty());
     String systemPrompt = systemPromptTemplate.render() + "\n\n" + outputConverter.getFormat();
     String userPrompt = userPromptTemplate.render(Map.of(
         "jobTitle", job.getTitle(),
-        "difficulty", difficultyLabel(job.getDifficulty()),
+        "difficulty", difficultyLabel(effectiveDifficulty),
+        "difficultyGuidance", interview.guide.modules.recruitment.model.CandidateLevels.questionGuidance(effectiveDifficulty),
         "jdText", ResumeScreeningService.truncate(job.getJdText(), MAX_JD_CHARS),
         "categories", describeCategories(categories),
         "singleCount", single,
@@ -95,7 +102,8 @@ public class WrittenTestGenerator {
     }
     int expected = single + multi + fill;
     if (questions.size() < expected) {
-      log.warn("AI 笔试出题数量不足: jobId={}, expected={}, actual={}", job.getId(), expected, questions.size());
+      log.warn("AI 笔试出题数量不足: jobId={}, level={}, expected={}, actual={}",
+          job.getId(), effectiveDifficulty, expected, questions.size());
     }
     return questions;
   }
