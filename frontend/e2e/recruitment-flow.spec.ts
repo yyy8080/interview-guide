@@ -802,4 +802,91 @@ test.describe('企业招聘全流程（候选人门户 + HR 后台审核与邮�
     await expect(page.getByTestId('written-detail-card')).toContainText('100 分（答对 3 / 3 题）');
     await expect(page.getByTestId('written-detail-card')).toContainText('AI 语义判分');
   });
+
+  test('新建岗位默认初筛分数线降低为 45 分，且求职者可在「我的投递」查看简历初筛未通过的具体原因', async ({ page }) => {
+    // 1. HR 后台新建岗位默认初筛分数线为 45 分
+    await seedAdminAuth(page, 'ADMIN');
+    await page.route('**/api/interview/skills', route => ok(route, []));
+    await page.route('**/api/knowledgebase/list', route => ok(route, []));
+    await page.route('**/api/llm-provider/list', route => ok(route, []));
+
+    await page.goto('/admin/jobs/new');
+    await expect(page.getByTestId('job-screening-threshold')).toHaveValue('45');
+    await expect(page.getByText(/默认 45 分（宽进严出/)).toBeVisible();
+
+    // 2. 求职者门户：简历初筛未通过展示具体原因与差距项，而面试/HR 未通过仅展示礼貌通用通知
+    await page.addInitScript(() => {
+      window.localStorage.setItem('ig_candidate_token', 'cand-jwt-token-screen-reject');
+      window.localStorage.setItem('ig_candidate_token_expires_at', '2099-12-31T23:59:59.000Z');
+      window.localStorage.setItem(
+        'ig_candidate_profile',
+        JSON.stringify({
+          id: 95,
+          email: 'seeker@example.com',
+          name: '周同学',
+          phone: null,
+        }),
+      );
+    });
+
+    await page.route('**/api/candidate/applications', route =>
+      ok(route, [
+        {
+          id: 701,
+          jobId: 15,
+          jobTitle: 'Java 后端研发工程师',
+          department: '平台研发部',
+          location: '杭州',
+          candidateLevel: 'junior',
+          stage: 'REJECTED',
+          availableModes: ['TEXT'],
+          interviewMode: null,
+          questionCount: 6,
+          timeLimitMinutes: 30,
+          submittedAt: '2026-11-18T11:00:00',
+          inviteExpiresAt: null,
+          interviewStartedAt: null,
+          interviewDeadlineAt: null,
+          interviewCompletedAt: null,
+          offlineInterview: null,
+          screeningFeedback: {
+            summary: '简历主要聚焦在 UI 视觉设计方向，暂未体现 Java 服务端与关系型数据库开发基础。',
+            missingRequirements: ['Java 与 Spring Boot Web 开发基础', 'SQL 与关系型数据库实践经历'],
+          },
+        },
+        {
+          id: 702,
+          jobId: 16,
+          jobTitle: '前端开发工程师',
+          department: '体验技术部',
+          location: '杭州',
+          candidateLevel: 'mid',
+          stage: 'REJECTED',
+          availableModes: ['TEXT'],
+          interviewMode: 'TEXT',
+          questionCount: 6,
+          timeLimitMinutes: 30,
+          submittedAt: '2026-11-18T10:00:00',
+          inviteExpiresAt: null,
+          interviewStartedAt: '2026-11-18T10:05:00',
+          interviewDeadlineAt: '2026-11-18T10:35:00',
+          interviewCompletedAt: '2026-11-18T10:25:00',
+          offlineInterview: null,
+          screeningFeedback: null,
+        },
+      ]),
+    );
+
+    await page.goto('/careers/me');
+    await expect(page.getByText('简历初筛未通过', { exact: true })).toBeVisible();
+    const feedbackCard = page.getByTestId('screening-feedback-701');
+    await expect(feedbackCard).toContainText('简历初筛未通过原因');
+    await expect(feedbackCard).toContainText('简历主要聚焦在 UI 视觉设计方向，暂未体现 Java 服务端与关系型数据库开发基础。');
+    await expect(feedbackCard).toContainText('Java 与 Spring Boot Web 开发基础');
+    await expect(feedbackCard).toContainText('SQL 与关系型数据库实践经历');
+
+    // 另一条非初筛淘汰记录不展示初筛原因卡片
+    await expect(page.getByTestId('screening-feedback-702')).toHaveCount(0);
+    await expect(page.getByText('感谢您的关注与投入，经综合评估本次未能进入下一环节，祝您求职顺利。')).toBeVisible();
+  });
 });

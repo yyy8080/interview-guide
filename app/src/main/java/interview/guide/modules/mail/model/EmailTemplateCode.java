@@ -60,13 +60,14 @@ public enum EmailTemplateCode {
           {candidateName}，您好：
 
           感谢您对 {companyName}「{jobTitle}」岗位的关注与投入。
-          经过综合评估，很遗憾您本次未能进入下一轮。我们已将您的信息纳入人才库，
-          如有合适机会将再与您联系。祝您求职顺利！
+          经过综合评估，很遗憾您本次未能进入下一轮。{rejectReason}
+          您也可登录招聘门户查看投递详情：{portalUrl}/careers/me
+          我们已将您的信息纳入人才库，如有合适机会将再与您联系。祝您求职顺利！
 
           {companyName} 招聘团队
           {contactInfo}
           """,
-      List.of("candidateName", "jobTitle")),
+      List.of("candidateName", "jobTitle", "rejectReason")),
 
   OFFLINE_INVITE(
       "线下面试邀请",

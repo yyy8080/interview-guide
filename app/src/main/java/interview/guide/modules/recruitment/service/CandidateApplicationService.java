@@ -14,6 +14,7 @@ import interview.guide.modules.recruitment.model.CandidateApplicationDTO;
 import interview.guide.modules.recruitment.model.CandidateEntity;
 import interview.guide.modules.recruitment.model.CandidateLevels;
 import interview.guide.modules.recruitment.model.CandidateOfflineDTO;
+import interview.guide.modules.recruitment.model.CandidateScreeningFeedbackDTO;
 import interview.guide.modules.recruitment.model.OperatorType;
 import interview.guide.modules.recruitment.repository.ApplicationRepository;
 import interview.guide.modules.recruitment.repository.CandidateRepository;
@@ -32,6 +33,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * 候选人侧投递：投递简历、查看进度、确认 / 申请改期线下面试
@@ -54,6 +56,7 @@ public class CandidateApplicationService {
   private final ApplicationStateMachine stateMachine;
   private final ApplicationWorkflowService workflowService;
   private final TransactionalExecutor transactionalExecutor;
+  private final ObjectMapper objectMapper;
 
   /**
    * 投递岗位：校验 → 上传解析简历（事务外）→ 事务内创建投递单并进入初筛 / 面试邀请
@@ -247,7 +250,10 @@ public class CandidateApplicationService {
         .toList();
   }
 
-  static CandidateApplicationDTO toDTO(ApplicationEntity app, JobPositionEntity job, CandidateOfflineDTO offline) {
+  private CandidateApplicationDTO toDTO(ApplicationEntity app, JobPositionEntity job, CandidateOfflineDTO offline) {
+    CandidateScreeningFeedbackDTO screeningFeedback = app.getStatus() == ApplicationStatus.SCREEN_REJECTED
+        ? CandidateScreeningFeedbackDTO.fromJson(app.getScreeningResultJson(), objectMapper)
+        : null;
     return new CandidateApplicationDTO(
         app.getId(),
         app.getJobId(),
@@ -255,7 +261,7 @@ public class CandidateApplicationService {
         job != null ? job.getDepartment() : null,
         job != null ? job.getLocation() : null,
         app.getStatus().toCandidateStage(),
-        interview.guide.modules.recruitment.model.CandidateLevels.resolve(
+        CandidateLevels.resolve(
             app.getCandidateLevel(), job != null ? job.getDifficulty() : null),
         availableModes(job),
         app.getInterviewMode(),
@@ -266,7 +272,8 @@ public class CandidateApplicationService {
         app.getInterviewStartedAt(),
         app.getInterviewDeadlineAt(),
         app.getInterviewCompletedAt(),
-        offline);
+        offline,
+        screeningFeedback);
   }
 
   private static String trimToNull(String value) {

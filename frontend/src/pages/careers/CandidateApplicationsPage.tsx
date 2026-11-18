@@ -162,8 +162,16 @@ export default function CandidateApplicationsPage() {
                 <div>
                   <div className="flex flex-wrap items-center gap-2.5">
                     <h2 className="text-lg font-bold text-slate-900 dark:text-white">{app.jobTitle}</h2>
-                    <span className={`rounded-full px-3 py-0.5 text-xs font-medium ${STAGE_BADGE[app.stage]}`}>
-                      {CANDIDATE_STAGE_LABELS[app.stage]}
+                    <span
+                      className={`rounded-full px-3 py-0.5 text-xs font-medium ${
+                        app.stage === 'REJECTED' && app.screeningFeedback
+                          ? 'bg-amber-50 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300'
+                          : STAGE_BADGE[app.stage]
+                      }`}
+                    >
+                      {app.stage === 'REJECTED' && app.screeningFeedback
+                        ? '简历初筛未通过'
+                        : CANDIDATE_STAGE_LABELS[app.stage]}
                     </span>
                     {app.candidateLevel && (
                       <span
@@ -235,9 +243,38 @@ export default function CandidateApplicationsPage() {
               )}
 
               {app.stage === 'REJECTED' && (
-                <p className="text-sm text-slate-500 dark:text-slate-400">
-                  感谢您的关注与投入，经综合评估本次未能进入下一环节，祝您求职顺利。
-                </p>
+                app.screeningFeedback ? (
+                  <div
+                    data-testid={`screening-feedback-${app.id}`}
+                    className="space-y-2.5 rounded-xl border border-amber-200/80 bg-amber-50/50 p-4 text-sm dark:border-amber-800/60 dark:bg-amber-900/15"
+                  >
+                    <div className="font-semibold text-amber-900 dark:text-amber-200">
+                      简历初筛未通过原因
+                    </div>
+                    <p className="leading-relaxed text-slate-700 dark:text-slate-200">
+                      {app.screeningFeedback.summary}
+                    </p>
+                    {app.screeningFeedback.missingRequirements.length > 0 && (
+                      <div className="space-y-1.5 pt-0.5">
+                        <div className="text-xs font-medium text-slate-600 dark:text-slate-300">
+                          与岗位要求的主要差距：
+                        </div>
+                        <ul className="list-inside list-disc space-y-1 text-xs text-slate-600 dark:text-slate-300">
+                          {app.screeningFeedback.missingRequirements.map((item, idx) => (
+                            <li key={idx}>{item}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    <p className="pt-0.5 text-xs text-slate-500 dark:text-slate-400">
+                      建议在简历中补充上述相关技术或项目实践细节，也欢迎继续关注其他匹配职位。
+                    </p>
+                  </div>
+                ) : (
+                  <p className="text-sm text-slate-500 dark:text-slate-400">
+                    感谢您的关注与投入，经综合评估本次未能进入下一环节，祝您求职顺利。
+                  </p>
+                )
               )}
 
               {app.stage === 'EXPIRED' && (

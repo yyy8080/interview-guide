@@ -14,6 +14,7 @@ import interview.guide.modules.mail.service.MailSettingsService.ResolvedMailConf
 import interview.guide.modules.recruitment.model.ApplicationEntity;
 import interview.guide.modules.recruitment.model.ApplicationStatus;
 import interview.guide.modules.recruitment.model.CandidateEntity;
+import interview.guide.modules.recruitment.model.CandidateScreeningFeedbackDTO;
 import interview.guide.modules.recruitment.repository.ApplicationRepository;
 import interview.guide.modules.recruitment.repository.CandidateRepository;
 import interview.guide.modules.recruitment.service.ApplicationStatusChangedEvent;
@@ -27,6 +28,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.event.TransactionPhase;
 import org.springframework.transaction.event.TransactionalEventListener;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * 投递状态变更邮件通知。
@@ -51,6 +53,7 @@ public class RecruitmentNotificationListener {
   private final MailOutboxService mailOutboxService;
   private final MailSettingsService mailSettingsService;
   private final TransactionalExecutor transactionalExecutor;
+  private final ObjectMapper objectMapper;
 
   @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
   public void onStatusChanged(ApplicationStatusChangedEvent event) {
@@ -91,6 +94,7 @@ public class RecruitmentNotificationListener {
         vars.put("interviewMode", modeLabel(job != null ? job.getInterviewMode() : null));
         vars.put("timeLimit", timeLimitText(job));
       }
+      case REJECTED -> vars.put("rejectReason", buildRejectReason(event.to(), app));
       case OFFLINE_INVITE -> {
         InterviewScheduleEntity schedule = scheduleRepository.findByApplicationId(app.getId()).orElse(null);
         if (schedule == null) {
@@ -109,6 +113,19 @@ public class RecruitmentNotificationListener {
       }
     }
     mailOutboxService.enqueue(app.getId(), candidate.getEmail(), code, vars, ics);
+  }
+
+  private String buildRejectReason(ApplicationStatus status, ApplicationEntity app) {
+    if (status != ApplicationStatus.SCREEN_REJECTED) {
+      return "";
+    }
+    CandidateScreeningFeedbackDTO feedback = CandidateScreeningFeedbackDTO.fromJson(
+        app.getScreeningResultJson(), objectMapper);
+    StringBuilder sb = new StringBuilder("\n\n简历初筛未通过原因：").append(feedback.summary());
+    if (!feedback.missingRequirements().isEmpty()) {
+      sb.append("\n与岗位要求的主要差距：").append(String.join("；", feedback.missingRequirements()));
+    }
+    return sb.toString();
   }
 
   static EmailTemplateCode templateFor(ApplicationStatus status) {

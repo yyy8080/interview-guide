@@ -58,11 +58,14 @@ class EmailTemplateServiceTest {
         "companyName", "远航科技",
         "candidateName", "赵六",
         "jobTitle", "后端工程师",
+        "rejectReason", "\n\n简历初筛未通过原因：缺少 Java 后端项目经验",
+        "portalUrl", "https://jobs.yuanhang.com",
         "contactInfo", "hr@yuanhang.com"
     ));
     assertThat(defaultRejected.enabled()).isTrue();
     assertThat(defaultRejected.subject()).isEqualTo("【远航科技】投递结果通知 - 后端工程师");
     assertThat(defaultRejected.body()).contains("赵六，您好");
+    assertThat(defaultRejected.body()).contains("简历初筛未通过原因：缺少 Java 后端项目经验");
 
     EmailTemplateEntity disabled = new EmailTemplateEntity();
     disabled.setCode(EmailTemplateCode.REJECTED.name());

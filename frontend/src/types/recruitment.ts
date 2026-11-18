@@ -55,6 +55,11 @@ export interface CandidateOfflineInterview {
   candidateNote: string | null;
 }
 
+export interface CandidateScreeningFeedback {
+  summary: string;
+  missingRequirements: string[];
+}
+
 export interface CandidateApplication {
   id: number;
   jobId: number;
@@ -73,6 +78,7 @@ export interface CandidateApplication {
   interviewDeadlineAt: string | null;
   interviewCompletedAt: string | null;
   offlineInterview: CandidateOfflineInterview | null;
+  screeningFeedback?: CandidateScreeningFeedback | null;
 }
 
 export interface CandidateQuestion {

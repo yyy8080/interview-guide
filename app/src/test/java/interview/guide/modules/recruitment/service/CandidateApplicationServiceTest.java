@@ -40,6 +40,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.mock.web.MockMultipartFile;
+import tools.jackson.databind.ObjectMapper;
 
 @ExtendWith(MockitoExtension.class)
 @DisplayName("候选人投递与线下面试确认服务测试")
@@ -72,13 +73,16 @@ class CandidateApplicationServiceTest {
   @Mock
   private TransactionalExecutor transactionalExecutor;
 
+  private final ObjectMapper objectMapper = new ObjectMapper();
+
   private CandidateApplicationService service;
 
   @BeforeEach
   void setUp() {
     service = new CandidateApplicationService(
         applicationRepository, candidateRepository, jobPositionRepository, scheduleRepository,
-        resumeUploadService, resumeRepository, stateMachine, workflowService, transactionalExecutor);
+        resumeUploadService, resumeRepository, stateMachine, workflowService, transactionalExecutor,
+        objectMapper);
   }
 
   private JobPositionEntity openJob(boolean screeningEnabled, InterviewMode mode) {
@@ -254,5 +258,64 @@ class CandidateApplicationServiceTest {
     assertThat(rescheduled.offlineInterview().confirmStatus()).isEqualTo(CandidateApplicationService.CONFIRM_RESCHEDULE);
     assertThat(rescheduled.offlineInterview().candidateNote()).isEqualTo("周三下午有毕业答辩，希望改到周五");
     verify(stateMachine).log(eq(app), eq(OperatorType.CANDIDATE), eq(99L), any());
+  }
+
+  @Test
+  @DisplayName("简历初筛未通过时向候选人返回脱敏原因与差距项；AI 面试或 HR 未通过不暴露内部评估细节")
+  void exposesScreeningRejectFeedbackOnlyForScreenRejectedApplications() {
+    ApplicationEntity screenRejected = new ApplicationEntity();
+    screenRejected.setId(301L);
+    screenRejected.setJobId(5L);
+    screenRejected.setCandidateId(99L);
+    screenRejected.setStatus(ApplicationStatus.SCREEN_REJECTED);
+    screenRejected.setScreeningScore(35);
+    screenRejected.setScreeningResultJson("""
+        {
+          "score": 35,
+          "summary": "简历主要集中在平面设计方向，暂未体现 Java 后端开发与数据库实践经历。",
+          "strengths": ["作品集完整"],
+          "risks": ["技术栈方向不符"],
+          "matchedRequirements": [],
+          "missingRequirements": ["Java 与 Spring Boot 开发经验", "关系型数据库使用经验"]
+        }
+        """);
+
+    ApplicationEntity aiRejected = new ApplicationEntity();
+    aiRejected.setId(302L);
+    aiRejected.setJobId(5L);
+    aiRejected.setCandidateId(99L);
+    aiRejected.setStatus(ApplicationStatus.AI_REJECTED);
+    aiRejected.setScreeningResultJson("""
+        {"score": 78, "summary": "初筛已通过", "missingRequirements": []}
+        """);
+
+    ApplicationEntity hrRejected = new ApplicationEntity();
+    hrRejected.setId(303L);
+    hrRejected.setJobId(5L);
+    hrRejected.setCandidateId(99L);
+    hrRejected.setStatus(ApplicationStatus.HR_REJECTED);
+    hrRejected.setHrComment("内部评语：薪资预期超出预算");
+
+    when(applicationRepository.findByCandidateIdOrderBySubmittedAtDesc(99L))
+        .thenReturn(List.of(screenRejected, aiRejected, hrRejected));
+    when(jobPositionRepository.findAllById(List.of(5L)))
+        .thenReturn(List.of(openJob(true, InterviewMode.BOTH)));
+
+    List<CandidateApplicationDTO> list = service.listMine(99L);
+    assertThat(list).hasSize(3);
+
+    CandidateApplicationDTO dtoScreen = list.get(0);
+    assertThat(dtoScreen.stage()).isEqualTo(CandidateStage.REJECTED);
+    assertThat(dtoScreen.screeningFeedback()).isNotNull();
+    assertThat(dtoScreen.screeningFeedback().summary())
+        .isEqualTo("简历主要集中在平面设计方向，暂未体现 Java 后端开发与数据库实践经历。");
+    assertThat(dtoScreen.screeningFeedback().missingRequirements())
+        .containsExactly("Java 与 Spring Boot 开发经验", "关系型数据库使用经验");
+
+    assertThat(list.get(1).stage()).isEqualTo(CandidateStage.REJECTED);
+    assertThat(list.get(1).screeningFeedback()).isNull();
+
+    assertThat(list.get(2).stage()).isEqualTo(CandidateStage.REJECTED);
+    assertThat(list.get(2).screeningFeedback()).isNull();
   }
 }

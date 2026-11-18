@@ -79,7 +79,7 @@ const EMPTY_FORM: FormState = {
   timeLimitMinutes: '45',
   llmProvider: '',
   screeningEnabled: true,
-  screeningThreshold: '60',
+  screeningThreshold: '45',
   aiPassThreshold: 70,
   proctorAwayReminder: true,
   proctorWatermark: true,
@@ -128,7 +128,7 @@ function fromJob(job: JobPosition): FormState {
     timeLimitMinutes: job.timeLimitMinutes != null ? String(job.timeLimitMinutes) : '',
     llmProvider: job.llmProvider ?? '',
     screeningEnabled: job.screeningEnabled,
-    screeningThreshold: job.screeningThreshold != null ? String(job.screeningThreshold) : '60',
+    screeningThreshold: job.screeningThreshold != null ? String(job.screeningThreshold) : '45',
     aiPassThreshold: job.aiPassThreshold,
     proctorAwayReminder: job.proctorAwayReminder ?? true,
     proctorWatermark: job.proctorWatermark ?? true,
@@ -593,7 +593,18 @@ export default function JobEditPage() {
           {form.screeningEnabled && (
             <div>
               <label className={labelClass}>简历初筛分数线（0-100）</label>
-              <input className={inputClass} type="number" min={0} max={100} value={form.screeningThreshold} onChange={e => update('screeningThreshold', e.target.value)} />
+              <input
+                data-testid="job-screening-threshold"
+                className={inputClass}
+                type="number"
+                min={0}
+                max={100}
+                value={form.screeningThreshold}
+                onChange={e => update('screeningThreshold', e.target.value)}
+              />
+              <p className={hintClass}>
+                默认 45 分（宽进严出，仅过滤方向明显不符或空洞简历；未通过初筛时求职者可在「我的投递」查看具体未通过原因）
+              </p>
             </div>
           )}
           <div>
