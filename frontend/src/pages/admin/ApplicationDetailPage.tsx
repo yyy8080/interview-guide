@@ -27,6 +27,7 @@ import { getStoredUser } from '../../utils/authStorage';
 import { formatDateTime } from '../../utils/date';
 import { INTERVIEW_MODE_LABELS, JOB_DIFFICULTY_LABELS } from '../../types/job';
 import {
+  AI_EXPERIENCE_LABELS,
   APPLICATION_STATUS_BADGES,
   APPLICATION_STATUS_LABELS,
   EMAIL_LOG_STATUS_LABELS,
@@ -289,8 +290,27 @@ export default function ApplicationDetailPage() {
 
   const proctorTotal = useMemo(() => {
     if (!detail) return 0;
-    return Object.values(detail.proctorCounts ?? {}).reduce((sum, n) => sum + (n ?? 0), 0);
+    const countSum = Object.values(detail.proctorCounts ?? {}).reduce((sum, n) => sum + (n ?? 0), 0);
+    return Math.max(countSum, detail.proctorEvents?.length ?? 0);
   }, [detail]);
+
+  const pasteEvents = useMemo(
+    () => (detail?.proctorEvents ?? []).filter(ev => ev.type === 'PASTE'),
+    [detail],
+  );
+
+  const nonPasteCounts = useMemo(
+    () =>
+      (Object.entries(detail?.proctorCounts ?? {}) as [ProctorEventType, number][]).filter(
+        ([type, count]) => type !== 'PASTE' && (count ?? 0) > 0,
+      ),
+    [detail],
+  );
+
+  const nonPasteEvents = useMemo(
+    () => (detail?.proctorEvents ?? []).filter(ev => ev.type !== 'PASTE'),
+    [detail],
+  );
 
   if (loading) {
     return (
@@ -342,6 +362,14 @@ export default function ApplicationDetailPage() {
                   {detail.jobDifficulty && detail.jobDifficulty !== detail.candidateLevel
                     ? `（岗位建议：${JOB_DIFFICULTY_LABELS[detail.jobDifficulty]}）`
                     : ''}
+                </span>
+              )}
+              {detail.aiExperience && (
+                <span
+                  data-testid="candidate-ai-exp-badge"
+                  className="inline-flex rounded-full bg-indigo-50 px-3 py-0.5 text-xs font-medium text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300"
+                >
+                  AI 经验：{AI_EXPERIENCE_LABELS[detail.aiExperience]}
                 </span>
               )}
               {(detail.resumeRevisionCount ?? 0) > 0 && (
@@ -593,6 +621,33 @@ export default function ApplicationDetailPage() {
       {/* 标签内容：1. AI 审核与风控 */}
       {tab === 'overview' && (
         <div className="grid gap-6 lg:grid-cols-2">
+          {/* 候选人答题前补充：AI 相关经验与个人特长 */}
+          {(detail.aiExperience || detail.specialties) && (
+            <div
+              data-testid="candidate-specialties-card"
+              className="dark-card space-y-2.5 p-6 lg:col-span-2"
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h3 className="flex items-center gap-2 text-base font-semibold text-slate-900 dark:text-white">
+                  <Sparkles className="h-4 w-4 text-primary-500" />
+                  候选人答题前补充（AI 相关经验与个人特长）
+                </h3>
+                {detail.aiExperience && (
+                  <span className="rounded-full bg-indigo-50 px-3 py-0.5 text-xs font-medium text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300">
+                    {AI_EXPERIENCE_LABELS[detail.aiExperience]}
+                  </span>
+                )}
+              </div>
+              {detail.specialties ? (
+                <p className="whitespace-pre-wrap text-sm leading-relaxed text-slate-700 dark:text-slate-200">
+                  {detail.specialties}
+                </p>
+              ) : (
+                <p className="text-xs text-slate-400">候选人未额外填写其他特长说明</p>
+              )}
+            </div>
+          )}
+
           {/* AI 初筛 */}
           <div className="dark-card space-y-3 p-6">
             <div className="flex items-center justify-between">
@@ -845,23 +900,75 @@ export default function ApplicationDetailPage() {
               <p className="text-sm text-slate-400">未检测到切屏、失焦或粘贴等异常行为</p>
             ) : (
               <div className="space-y-3">
-                <div className="flex flex-wrap gap-2">
-                  {(Object.entries(detail.proctorCounts) as [ProctorEventType, number][]).map(([type, count]) => (
-                    <span
-                      key={type}
-                      className="rounded-full bg-amber-50 px-3 py-1 text-xs font-medium text-amber-800 dark:bg-amber-900/30 dark:text-amber-200"
-                    >
-                      {PROCTOR_EVENT_LABELS[type] ?? type}：{count} 次
-                    </span>
-                  ))}
-                </div>
-                <div className="max-h-48 overflow-y-auto text-xs text-slate-500 dark:text-slate-400 space-y-1">
-                  {detail.proctorEvents.map(ev => (
-                    <div key={ev.id}>
-                      {formatDateTime(ev.occurredAt)} · {describeEvent(ev)}
+                {pasteEvents.length > 0 && (
+                  <div
+                    data-testid="proctor-pasted-texts"
+                    className="space-y-2.5 rounded-xl border border-amber-200/80 bg-amber-50/50 p-4 dark:border-amber-800/60 dark:bg-amber-950/20"
+                  >
+                    <div className="text-xs font-semibold text-amber-900 dark:text-amber-200">
+                      实际粘贴内容文本明细
                     </div>
-                  ))}
-                </div>
+                    <div className="max-h-72 space-y-2.5 overflow-y-auto pr-1">
+                      {pasteEvents.map(ev => (
+                        <div
+                          key={ev.id}
+                          data-testid={`paste-event-card-${ev.id}`}
+                          className="space-y-1.5 rounded-lg border border-amber-200/70 bg-white p-3 text-xs dark:border-slate-700 dark:bg-slate-900/80"
+                        >
+                          <div className="flex flex-wrap items-center justify-between gap-2 text-slate-500 dark:text-slate-400">
+                            <div className="flex flex-wrap items-center gap-2">
+                              {ev.questionIndex != null && (
+                                <span className="rounded bg-amber-100 px-2 py-0.5 font-semibold text-amber-900 dark:bg-amber-900/40 dark:text-amber-200">
+                                  第 {ev.questionIndex + 1} 题
+                                </span>
+                              )}
+                              {ev.detail && (
+                                <span className="font-medium text-slate-700 dark:text-slate-200">
+                                  {ev.detail}
+                                </span>
+                              )}
+                              {ev.chars != null && <span>共 {ev.chars} 字</span>}
+                            </div>
+                            <span>{formatDateTime(ev.occurredAt)}</span>
+                          </div>
+                          {ev.pastedText ? (
+                            <pre
+                              data-testid={`pasted-text-content-${ev.id}`}
+                              className="whitespace-pre-wrap break-words rounded-lg bg-slate-50 p-2.5 font-sans text-xs leading-relaxed text-slate-800 dark:bg-slate-800/80 dark:text-slate-100"
+                            >
+                              {ev.pastedText}
+                            </pre>
+                          ) : (
+                            <p className="italic text-slate-400">（历史记录未保存粘贴原文）</p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {nonPasteCounts.length > 0 && (
+                  <div className="flex flex-wrap gap-2">
+                    {nonPasteCounts.map(([type, count]) => (
+                      <span
+                        key={type}
+                        className="rounded-full bg-amber-50 px-3 py-1 text-xs font-medium text-amber-800 dark:bg-amber-900/30 dark:text-amber-200"
+                      >
+                        {PROCTOR_EVENT_LABELS[type] ?? type}：{count} 次
+                      </span>
+                    ))}
+                  </div>
+                )}
+
+                {nonPasteEvents.length > 0 && (
+                  <div className="max-h-48 overflow-y-auto space-y-1 text-xs text-slate-500 dark:text-slate-400">
+                    {nonPasteEvents.map(ev => (
+                      <div key={ev.id}>
+                        {formatDateTime(ev.occurredAt)} · {describeEvent(ev)}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -948,6 +1055,48 @@ export default function ApplicationDetailPage() {
                   </div>
                 </div>
               )}
+
+              {pasteEvents.length > 0 && (
+                <div className="dark-card space-y-3 p-6" data-testid="interview-pasted-texts">
+                  <h3 className="flex items-center gap-2 text-base font-semibold text-slate-900 dark:text-white">
+                    <ShieldAlert className="h-4 w-4 text-amber-500" />
+                    答题期间实际粘贴文本对照
+                  </h3>
+                  <div className="space-y-2.5">
+                    {pasteEvents.map(ev => (
+                      <div
+                        key={ev.id}
+                        className="space-y-1.5 rounded-xl border border-amber-200/70 bg-amber-50/40 p-3.5 text-xs dark:border-amber-800/50 dark:bg-amber-950/20"
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-2 text-slate-500 dark:text-slate-400">
+                          <div className="flex flex-wrap items-center gap-2">
+                            {ev.questionIndex != null && (
+                              <span className="rounded bg-amber-100 px-2 py-0.5 font-semibold text-amber-900 dark:bg-amber-900/40 dark:text-amber-200">
+                                第 {ev.questionIndex + 1} 题
+                              </span>
+                            )}
+                            {ev.detail && (
+                              <span className="font-medium text-slate-700 dark:text-slate-200">
+                                {ev.detail}
+                              </span>
+                            )}
+                            {ev.chars != null && <span>共 {ev.chars} 字</span>}
+                          </div>
+                          <span>{formatDateTime(ev.occurredAt)}</span>
+                        </div>
+                        {ev.pastedText ? (
+                          <pre className="whitespace-pre-wrap break-words rounded-lg bg-white p-2.5 font-sans text-xs leading-relaxed text-slate-800 dark:bg-slate-900/80 dark:text-slate-100">
+                            {ev.pastedText}
+                          </pre>
+                        ) : (
+                          <p className="italic text-slate-400">（历史记录未保存粘贴原文）</p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {interviewDetail && <InterviewDetailPanel interview={interviewDetail} />}
               {voiceMessages.length > 0 && (
                 <div className="dark-card space-y-3 p-6">

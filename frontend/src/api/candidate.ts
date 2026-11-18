@@ -1,6 +1,7 @@
 import request from './request';
 import type { ConcreteInterviewMode, JobDifficulty } from '../types/job';
 import type {
+  AiExperienceLevel,
   CandidateAnswerResponse,
   CandidateApplication,
   CandidateInterviewState,
@@ -11,6 +12,11 @@ import type {
   AnswerTelemetry,
   ProctorEventPayload,
 } from '../types/recruitment';
+
+export interface CandidatePreTestProfilePayload {
+  aiExperience?: AiExperienceLevel | null;
+  specialties?: string | null;
+}
 
 export const candidateAuthApi = {
   sendCode(email: string): Promise<void> {
@@ -79,10 +85,17 @@ export const candidateApi = {
   startWrittenTest(
     applicationId: number,
     candidateLevel?: JobDifficulty,
+    profile?: CandidatePreTestProfilePayload,
   ): Promise<CandidateWrittenTest> {
+    const body: Record<string, unknown> = {};
+    if (candidateLevel) body.candidateLevel = candidateLevel;
+    if (profile?.aiExperience) body.aiExperience = profile.aiExperience;
+    if (profile?.specialties && profile.specialties.trim()) {
+      body.specialties = profile.specialties.trim();
+    }
     return request.post(
       `/api/candidate/applications/${applicationId}/written-test/start`,
-      candidateLevel ? { candidateLevel } : {},
+      body,
       { timeout: 180000 },
     );
   },
@@ -108,10 +121,17 @@ export const candidateApi = {
     applicationId: number,
     mode: ConcreteInterviewMode,
     candidateLevel?: JobDifficulty,
+    profile?: CandidatePreTestProfilePayload,
   ): Promise<CandidateInterviewState> {
+    const body: Record<string, unknown> = { mode };
+    if (candidateLevel) body.candidateLevel = candidateLevel;
+    if (profile?.aiExperience) body.aiExperience = profile.aiExperience;
+    if (profile?.specialties && profile.specialties.trim()) {
+      body.specialties = profile.specialties.trim();
+    }
     return request.post(
       `/api/candidate/applications/${applicationId}/interview/start`,
-      candidateLevel ? { mode, candidateLevel } : { mode },
+      body,
       { timeout: 180000 },
     );
   },

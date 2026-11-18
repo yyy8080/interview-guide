@@ -253,12 +253,18 @@ export default function CandidateVoicePanel({
     wsRef.current.sendControl('submit', { text: trimmed });
   };
 
-  /** 语音作答框不支持粘贴（语音面试需口头作答），拦截并无感记录 */
+  /** 语音作答框不支持粘贴（语音面试需口头作答），拦截并无感记录实际粘贴文本 */
   const handleVoicePaste = (e: ReactClipboardEvent<HTMLTextAreaElement>) => {
     e.preventDefault();
     setPasteHint(true);
-    const chars = e.clipboardData?.getData('text')?.length ?? 0;
-    onProctorRef.current?.({ type: 'PASTE', chars, detail: '语音作答框粘贴（已拦截）' });
+    const rawText = e.clipboardData?.getData('text') ?? '';
+    const chars = rawText.length;
+    onProctorRef.current?.({
+      type: 'PASTE',
+      chars,
+      pastedText: rawText ? rawText.slice(0, 4000) : undefined,
+      detail: '语音作答框粘贴（已拦截）',
+    });
   };
 
   const handleFinish = async () => {

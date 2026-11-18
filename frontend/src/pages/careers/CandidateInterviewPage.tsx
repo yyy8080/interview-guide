@@ -8,15 +8,19 @@ import {
   Loader2,
   MessageSquare,
   Mic,
+  RefreshCw,
   Send,
   ShieldCheck,
   X,
+  XCircle,
 } from 'lucide-react';
 import { candidateApi } from '../../api/candidate';
 import { getErrorMessage } from '../../api/request';
+import CandidateAssessmentFeedbackCard from '../../components/CandidateAssessmentFeedbackCard';
 import CandidateVoicePanel from '../../components/CandidateVoicePanel';
 import CandidateWrittenTest from '../../components/CandidateWrittenTest';
 import CandidateLevelSelector from '../../components/CandidateLevelSelector';
+import CandidatePreTestProfileForm from '../../components/CandidatePreTestProfileForm';
 import ConfirmDialog from '../../components/ConfirmDialog';
 import ProctorWatermark from '../../components/ProctorWatermark';
 import { useProctorMonitor } from '../../hooks/useProctorMonitor';
@@ -29,6 +33,7 @@ import {
   type JobDifficulty,
 } from '../../types/job';
 import type {
+  AiExperienceLevel,
   CandidateApplication,
   CandidateInterviewState,
   CandidateQuestion,
@@ -56,6 +61,8 @@ export default function CandidateInterviewPage() {
   const [state, setState] = useState<CandidateInterviewState | null>(null);
   const [chosenMode, setChosenMode] = useState<ConcreteInterviewMode>('TEXT');
   const [chosenLevel, setChosenLevel] = useState<JobDifficulty>('mid');
+  const [aiExperience, setAiExperience] = useState<AiExperienceLevel | null>(null);
+  const [specialties, setSpecialties] = useState('');
   const [loading, setLoading] = useState(true);
   const [starting, setStarting] = useState(false);
   const [confirmStartOpen, setConfirmStartOpen] = useState(false);
@@ -64,13 +71,14 @@ export default function CandidateInterviewPage() {
   const [confirmCompleteOpen, setConfirmCompleteOpen] = useState(false);
   const [writtenActive, setWrittenActive] = useState(false);
   const [writtenJustFinished, setWrittenJustFinished] = useState(false);
+  const [refreshingResult, setRefreshingResult] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const [answer, setAnswer] = useState('');
   const [history, setHistory] = useState<QaItem[]>([]);
   const [remaining, setRemaining] = useState<number | null>(null);
 
-  // 当前题作答遥测（只统计数量与时间，不记录内容）
+  // 当前题作答遥测
   const [telemetry] = useState(() => new AnswerTelemetryTracker());
   const currentQuestionIndexRef = useRef<number | undefined>(undefined);
   const writtenFocusIndexRef = useRef<number | undefined>(undefined);
@@ -107,6 +115,8 @@ export default function CandidateInterviewPage() {
         if (initialLevel) {
           setChosenLevel(initialLevel);
         }
+        setAiExperience(interviewData?.aiExperience ?? appData.aiExperience ?? null);
+        setSpecialties(interviewData?.specialties ?? appData.specialties ?? '');
         if (interviewData) {
           setState(interviewData);
           setRemaining(interviewData.remainingSeconds);
@@ -137,6 +147,63 @@ export default function CandidateInterviewPage() {
 
   // 作答行为无感采集（笔试进行中与面试进行中生效，不弹窗不阻断）
   const isInterviewing = state?.stage === 'INTERVIEWING' && !state.finished;
+  const isCompletedView = Boolean(
+    app
+      && (state?.finished
+        || (state && state.stage !== 'INTERVIEW_PENDING' && state.stage !== 'INTERVIEWING')
+        || (app.stage !== 'INTERVIEW_PENDING' && app.stage !== 'INTERVIEWING' && !isInterviewing)),
+  );
+
+  const refreshApplication = useCallback(async () => {
+    if (!authed || !applicationId || Number.isNaN(id)) return;
+    setRefreshingResult(true);
+    try {
+      const latest = await candidateApi.getApplication(id);
+      setApp(latest);
+    } catch {
+      // ignore transient error
+    } finally {
+      setRefreshingResult(false);
+    }
+  }, [authed, applicationId, id]);
+
+  // 交卷进入完成页后，自动同步投递评估状态（若 AI 异步评分未通过可立即呈现原因与错题解析）
+  useEffect(() => {
+    if (!isCompletedView || !app) return;
+    if (
+      app.stage !== 'INTERVIEW_PENDING'
+      && app.stage !== 'INTERVIEWING'
+      && app.stage !== 'UNDER_REVIEW'
+    ) {
+      return;
+    }
+    let cancelled = false;
+    let attempts = 0;
+    const poll = async () => {
+      attempts += 1;
+      try {
+        const latest = await candidateApi.getApplication(id);
+        if (!cancelled) {
+          setApp(latest);
+        }
+      } catch {
+        // ignore
+      }
+    };
+    void poll();
+    const timer = window.setInterval(() => {
+      if (attempts >= 12) {
+        window.clearInterval(timer);
+        return;
+      }
+      void poll();
+    }, 4000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [isCompletedView, app?.stage, id]);
+
   const textQuestionIndex = state?.mode === 'TEXT' ? state.currentQuestion?.questionIndex : undefined;
   useEffect(() => {
     currentQuestionIndexRef.current = textQuestionIndex;
@@ -159,6 +226,12 @@ export default function CandidateInterviewPage() {
         setState(data);
         if (data.candidateLevel) {
           setChosenLevel(data.candidateLevel);
+        }
+        if (data.aiExperience !== undefined) {
+          setAiExperience(data.aiExperience ?? null);
+        }
+        if (typeof data.specialties === 'string') {
+          setSpecialties(data.specialties);
         }
       })
       .catch(() => {
@@ -185,9 +258,17 @@ export default function CandidateInterviewPage() {
   });
 
   const handleAnswerPaste = (e: ReactClipboardEvent<HTMLTextAreaElement>) => {
-    const chars = e.clipboardData?.getData('text')?.length ?? 0;
+    const rawText = e.clipboardData?.getData('text') ?? '';
+    const chars = rawText.length;
     telemetry.recordPaste(chars);
-    if (chars > 0) reportProctor({ type: 'PASTE', chars });
+    if (chars > 0) {
+      reportProctor({
+        type: 'PASTE',
+        detail: '文字面试作答',
+        chars,
+        pastedText: rawText.slice(0, 4000),
+      });
+    }
   };
 
   /** 题干区域：不可选中复制、禁用右键菜单（作答区不受影响） */
@@ -209,11 +290,20 @@ export default function CandidateInterviewPage() {
     setStarting(true);
     setError(null);
     try {
-      const started = await candidateApi.startInterview(id, chosenMode, chosenLevel);
+      const started = await candidateApi.startInterview(id, chosenMode, chosenLevel, {
+        aiExperience,
+        specialties,
+      });
       setConfirmStartOpen(false);
       setState(started);
       if (started.candidateLevel) {
         setChosenLevel(started.candidateLevel);
+      }
+      if (started.aiExperience !== undefined) {
+        setAiExperience(started.aiExperience ?? null);
+      }
+      if (typeof started.specialties === 'string') {
+        setSpecialties(started.specialties);
       }
       setRemaining(started.remainingSeconds);
       applyQuestion(started.currentQuestion);
@@ -310,12 +400,45 @@ export default function CandidateInterviewPage() {
     );
   }
 
-  // 已完成视图
-  if (
-    state?.finished
-    || (state && state.stage !== 'INTERVIEW_PENDING' && state.stage !== 'INTERVIEWING')
-    || (app.stage !== 'INTERVIEW_PENDING' && app.stage !== 'INTERVIEWING' && !isInterviewing)
-  ) {
+  // 已完成视图（若评估未通过，直接展示未通过原因与没通过的题目解析）
+  if (isCompletedView) {
+    if (app.stage === 'REJECTED') {
+      return (
+        <div className="mx-auto max-w-3xl space-y-5" data-testid="interview-rejected-result">
+          <div className="dark-card space-y-5 p-6 sm:p-8 text-center">
+            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-rose-50 text-rose-600 dark:bg-rose-900/30 dark:text-rose-400">
+              <XCircle className="h-8 w-8" />
+            </div>
+            <div>
+              <h1 className="text-xl font-bold text-slate-900 dark:text-white">
+                {app.jobTitle} · 本次评估未通过
+              </h1>
+              <p className="mt-1.5 text-sm text-slate-600 dark:text-slate-300">
+                以下为您整理了本次评估未通过的具体原因及未达标题目的参考解析，供后续复盘提升参考。
+              </p>
+            </div>
+
+            {app.assessmentFeedback ? (
+              <CandidateAssessmentFeedbackCard
+                applicationId={app.id}
+                feedback={app.assessmentFeedback}
+              />
+            ) : (
+              <p className="text-sm text-slate-500 dark:text-slate-400">
+                感谢您的关注与投入，经综合评估本次未能进入下一环节，祝您求职顺利。
+              </p>
+            )}
+
+            <div className="pt-1">
+              <Link to={ROUTES.careerMe} className="btn-primary inline-block rounded-xl px-6 py-2.5 text-sm">
+                返回我的投递
+              </Link>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div className="dark-card mx-auto max-w-xl space-y-4 p-8 text-center">
         <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-emerald-50 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400">
@@ -323,11 +446,23 @@ export default function CandidateInterviewPage() {
         </div>
         <h1 className="text-xl font-bold text-slate-900 dark:text-white">在线面试已完成</h1>
         <p className="text-sm text-slate-600 dark:text-slate-300">
-          感谢您参加「{app.jobTitle}」岗位的在线面试。系统正在整理评估报告并提交 HR 复核，后续结果将通过邮件通知您。
+          感谢您参加「{app.jobTitle}」岗位的在线面试。系统正在整理评估报告并提交 HR 复核，您也可稍后在「我的投递」查看评估进度或题目解析。
         </p>
-        <Link to={ROUTES.careerMe} className="btn-primary inline-block rounded-xl px-6 py-2.5 text-sm">
-          返回我的投递
-        </Link>
+        <div className="flex flex-wrap items-center justify-center gap-3 pt-1">
+          <button
+            type="button"
+            data-testid="refresh-interview-result-btn"
+            disabled={refreshingResult}
+            onClick={() => void refreshApplication()}
+            className="btn-secondary inline-flex items-center gap-1.5 rounded-xl px-4 py-2.5 text-sm disabled:opacity-60"
+          >
+            <RefreshCw className={`h-4 w-4 ${refreshingResult ? 'animate-spin' : ''}`} />
+            刷新评估状态
+          </button>
+          <Link to={ROUTES.careerMe} className="btn-primary inline-block rounded-xl px-6 py-2.5 text-sm">
+            返回我的投递
+          </Link>
+        </div>
       </div>
     );
   }
@@ -368,6 +503,10 @@ export default function CandidateInterviewPage() {
           initialStatus={state.writtenTestStatus ?? null}
           candidateLevel={chosenLevel}
           onLevelChange={setChosenLevel}
+          aiExperience={aiExperience}
+          onAiExperienceChange={setAiExperience}
+          specialties={specialties}
+          onSpecialtiesChange={setSpecialties}
           onCompleted={handleWrittenCompleted}
           onProctor={reportProctor}
           onActiveChange={handleWrittenActiveChange}
@@ -378,7 +517,7 @@ export default function CandidateInterviewPage() {
     );
   }
 
-  // 尚未开始面试：选择定位 + 面试形式 + 须知
+  // 尚未开始面试：选择定位 + 补充特长/AI经验 + 面试形式 + 须知
   if (!isInterviewing) {
     return (
       <div className="mx-auto max-w-2xl space-y-6">
@@ -420,6 +559,15 @@ export default function CandidateInterviewPage() {
             label="选择您的应聘定位"
             hint="AI 将按所选定位生成面试题目"
             testIdPrefix="interview-level"
+          />
+
+          <CandidatePreTestProfileForm
+            aiExperience={aiExperience}
+            onAiExperienceChange={setAiExperience}
+            specialties={specialties}
+            onSpecialtiesChange={setSpecialties}
+            disabled={starting}
+            testIdPrefix="interview-profile"
           />
 
           {/* 面试形式选择 */}

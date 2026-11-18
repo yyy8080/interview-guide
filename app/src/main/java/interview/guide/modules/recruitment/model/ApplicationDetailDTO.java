@@ -18,6 +18,8 @@ public record ApplicationDetailDTO(
     String candidateEmail,
     String candidatePhone,
     String candidateLevel,
+    String aiExperience,
+    String specialties,
     // 岗位
     Long jobId,
     String jobTitle,

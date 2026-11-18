@@ -55,12 +55,53 @@ export interface CandidateOfflineInterview {
   candidateNote: string | null;
 }
 
+export type AiExperienceLevel = 'NONE' | 'TOOL_USER' | 'PROJECT_PRACTICE';
+
+export const AI_EXPERIENCE_LABELS: Record<AiExperienceLevel, string> = {
+  NONE: '暂无 AI 相关经验',
+  TOOL_USER: '日常使用 AI 工具辅助提效',
+  PROJECT_PRACTICE: '有 AI / 大模型项目实战经验',
+};
+
 export interface CandidateScreeningFeedback {
   summary: string;
   missingRequirements: string[];
   canResubmit: boolean;
   revisionCount: number;
   maxRevisions: number;
+}
+
+export interface CandidateFailedWrittenQuestion {
+  index: number;
+  type: WrittenQuestionType;
+  question: string;
+  options: string[];
+  category: string | null;
+  candidateAnswer: string[];
+  correctAnswers: string[];
+  explanation: string | null;
+  judgeReason: string | null;
+}
+
+export interface CandidateFailedInterviewQuestion {
+  questionIndex: number;
+  category: string | null;
+  question: string;
+  userAnswer: string;
+  score: number | null;
+  passThreshold: number;
+  feedback: string | null;
+  referenceAnswer: string | null;
+  keyPoints: string[];
+}
+
+export interface CandidateAssessmentFeedback {
+  rejectStageLabel: string;
+  summary: string;
+  scoreSummary: string | null;
+  reasons: string[];
+  failedWrittenQuestions: CandidateFailedWrittenQuestion[];
+  failedInterviewQuestions: CandidateFailedInterviewQuestion[];
 }
 
 export interface CandidateApplication {
@@ -70,6 +111,8 @@ export interface CandidateApplication {
   department: string | null;
   location: string | null;
   candidateLevel?: JobDifficulty;
+  aiExperience?: AiExperienceLevel | null;
+  specialties?: string | null;
   stage: CandidateStage;
   availableModes: ConcreteInterviewMode[];
   interviewMode: ConcreteInterviewMode | null;
@@ -82,6 +125,7 @@ export interface CandidateApplication {
   interviewCompletedAt: string | null;
   offlineInterview: CandidateOfflineInterview | null;
   screeningFeedback?: CandidateScreeningFeedback | null;
+  assessmentFeedback?: CandidateAssessmentFeedback | null;
 }
 
 export interface CandidateQuestion {
@@ -117,6 +161,8 @@ export interface CandidateWrittenQuestion {
 export interface CandidateWrittenTest {
   applicationId: number;
   candidateLevel?: JobDifficulty;
+  aiExperience?: AiExperienceLevel | null;
+  specialties?: string | null;
   status: WrittenTestStatus | null;
   totalQuestions: number;
   questions: CandidateWrittenQuestion[];
@@ -132,6 +178,8 @@ export interface CandidateInterviewState {
   applicationId: number;
   jobTitle: string;
   candidateLevel?: JobDifficulty;
+  aiExperience?: AiExperienceLevel | null;
+  specialties?: string | null;
   mode: ConcreteInterviewMode | null;
   stage: CandidateStage;
   startedAt: string | null;
@@ -201,6 +249,7 @@ export interface ProctorEventPayload {
   durationMs?: number;
   questionIndex?: number;
   chars?: number;
+  pastedText?: string | null;
 }
 
 export type ProctorRiskLevel = 'LOW' | 'MEDIUM' | 'HIGH';
@@ -382,6 +431,7 @@ export interface ProctorEventItem {
   durationMs?: number | null;
   questionIndex?: number | null;
   chars?: number | null;
+  pastedText?: string | null;
   occurredAt: string;
 }
 
@@ -427,6 +477,8 @@ export interface ApplicationDetail {
   candidateEmail: string | null;
   candidatePhone: string | null;
   candidateLevel?: JobDifficulty;
+  aiExperience?: AiExperienceLevel | null;
+  specialties?: string | null;
   jobId: number;
   jobTitle: string;
   jobDifficulty?: JobDifficulty | null;

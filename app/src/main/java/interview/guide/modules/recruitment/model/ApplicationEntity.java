@@ -51,6 +51,14 @@ public class ApplicationEntity {
   @Column(name = "candidate_level", length = 16)
   private String candidateLevel;
 
+  /** 候选人答题前选填的 AI 相关经验（NONE / TOOL_USER / PROJECT_PRACTICE） */
+  @Column(name = "ai_experience", length = 32)
+  private String aiExperience;
+
+  /** 候选人答题前选填的其他个人特长与补充说明 */
+  @Column(name = "specialties", columnDefinition = "TEXT")
+  private String specialties;
+
   /** 仅允许通过 ApplicationStateMachine 修改 */
   @Enumerated(EnumType.STRING)
   @Column(nullable = false, length = 32)

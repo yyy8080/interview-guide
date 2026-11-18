@@ -14,10 +14,12 @@ import { candidateApi } from '../api/candidate';
 import { getErrorMessage } from '../api/request';
 import ConfirmDialog from './ConfirmDialog';
 import CandidateLevelSelector from './CandidateLevelSelector';
+import CandidatePreTestProfileForm from './CandidatePreTestProfileForm';
 import { ROUTES } from '../constants/routes';
 import { JOB_DIFFICULTY_LABELS, type JobDifficulty } from '../types/job';
 import {
   WRITTEN_QUESTION_TYPE_LABELS,
+  type AiExperienceLevel,
   type CandidateWrittenQuestion,
   type CandidateWrittenTest as CandidateWrittenTestState,
   type ProctorEventPayload,
@@ -60,6 +62,10 @@ interface CandidateWrittenTestProps {
   initialStatus: WrittenTestStatus | null;
   candidateLevel: JobDifficulty;
   onLevelChange: (level: JobDifficulty) => void;
+  aiExperience: AiExperienceLevel | null;
+  onAiExperienceChange: (next: AiExperienceLevel | null) => void;
+  specialties: string;
+  onSpecialtiesChange: (next: string) => void;
   onCompleted: () => void;
   onProctor: (event: ProctorEventPayload, immediate?: boolean) => void;
   onActiveChange: (active: boolean, focusIndex?: number) => void;
@@ -73,6 +79,10 @@ export default function CandidateWrittenTest({
   initialStatus,
   candidateLevel,
   onLevelChange,
+  aiExperience,
+  onAiExperienceChange,
+  specialties,
+  onSpecialtiesChange,
   onCompleted,
   onProctor,
   onActiveChange,
@@ -98,6 +108,12 @@ export default function CandidateWrittenTest({
       if (data.candidateLevel) {
         onLevelChange(data.candidateLevel);
       }
+      if (data.aiExperience !== undefined) {
+        onAiExperienceChange(data.aiExperience ?? null);
+      }
+      if (typeof data.specialties === 'string') {
+        onSpecialtiesChange(data.specialties);
+      }
       if (data.status === 'SUBMITTED' || data.status === 'GRADED') {
         onActiveChange(false);
         onCompleted();
@@ -108,7 +124,7 @@ export default function CandidateWrittenTest({
       setRemaining(data.remainingSeconds);
       onActiveChange(data.status === 'IN_PROGRESS');
     },
-    [onActiveChange, onCompleted, onLevelChange],
+    [onActiveChange, onAiExperienceChange, onCompleted, onLevelChange, onSpecialtiesChange],
   );
 
   useEffect(() => {
@@ -202,7 +218,10 @@ export default function CandidateWrittenTest({
     setStarting(true);
     setError(null);
     try {
-      const started = await candidateApi.startWrittenTest(applicationId, candidateLevel);
+      const started = await candidateApi.startWrittenTest(applicationId, candidateLevel, {
+        aiExperience,
+        specialties,
+      });
       setConfirmStartOpen(false);
       applyTestState(started);
     } catch (err) {
@@ -282,6 +301,15 @@ export default function CandidateWrittenTest({
             label="选择您的应聘定位"
             hint="AI 将按所选定位实时生成笔试题目"
             testIdPrefix="written-level"
+          />
+
+          <CandidatePreTestProfileForm
+            aiExperience={aiExperience}
+            onAiExperienceChange={onAiExperienceChange}
+            specialties={specialties}
+            onSpecialtiesChange={onSpecialtiesChange}
+            disabled={starting}
+            testIdPrefix="written-profile"
           />
 
           <div
@@ -458,9 +486,16 @@ export default function CandidateWrittenTest({
                   onFocus={() => onActiveChange(true, q.index)}
                   onChange={e => updateAnswer(q.index, e.target.value ? [e.target.value] : [])}
                   onPaste={e => {
-                    const chars = e.clipboardData?.getData('text')?.length ?? 0;
+                    const rawText = e.clipboardData?.getData('text') ?? '';
+                    const chars = rawText.length;
                     if (chars > 0) {
-                      onProctor({ type: 'PASTE', detail: '笔试填空', questionIndex: q.index, chars });
+                      onProctor({
+                        type: 'PASTE',
+                        detail: '笔试填空',
+                        questionIndex: q.index,
+                        chars,
+                        pastedText: rawText.slice(0, 4000),
+                      });
                     }
                   }}
                   placeholder="请填写答案…"

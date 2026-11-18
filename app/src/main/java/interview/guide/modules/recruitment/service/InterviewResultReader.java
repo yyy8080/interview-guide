@@ -44,6 +44,26 @@ public class InterviewResultReader {
   public record EvaluationSnapshot(EvaluationState state, Integer score, String evaluationText) {
   }
 
+  public record EvaluatedAnswer(
+      int questionIndex,
+      String category,
+      String question,
+      String userAnswer,
+      Integer score,
+      String feedback,
+      String referenceAnswer,
+      List<String> keyPoints
+  ) {
+  }
+
+  public record EvaluatedInterview(
+      Integer overallScore,
+      String overallFeedback,
+      List<String> improvements,
+      List<EvaluatedAnswer> answers
+  ) {
+  }
+
   /** 仅读取评估状态（不加载评估详情） */
   public EvaluationState state(ApplicationEntity application) {
     if (application.getInterviewMode() == InterviewMode.VOICE) {
@@ -71,6 +91,62 @@ public class InterviewResultReader {
         .map(session -> session.getEndTime() != null
             || session.getCurrentPhase() == VoiceInterviewSessionEntity.InterviewPhase.COMPLETED)
         .orElse(false);
+  }
+
+  /** 读取结构化评估详情（用于终态未通过后生成未达标题目解析；不存在或未完成返回 null） */
+  public EvaluatedInterview readEvaluatedDetail(ApplicationEntity application) {
+    if (application == null || state(application) != EvaluationState.COMPLETED) {
+      return null;
+    }
+    try {
+      if (application.getInterviewMode() == InterviewMode.VOICE) {
+        VoiceEvaluationDetailDTO detail = voiceEvaluationService.getEvaluation(application.getVoiceSessionId());
+        if (detail == null) {
+          return null;
+        }
+        List<EvaluatedAnswer> answers = detail.getAnswers() == null ? List.of()
+            : detail.getAnswers().stream()
+                .map(a -> new EvaluatedAnswer(
+                    a.getQuestionIndex(),
+                    a.getCategory(),
+                    a.getQuestion(),
+                    a.getUserAnswer(),
+                    a.getScore(),
+                    a.getFeedback(),
+                    a.getReferenceAnswer(),
+                    a.getKeyPoints() == null ? List.of() : a.getKeyPoints()))
+                .toList();
+        return new EvaluatedInterview(
+            detail.getOverallScore(),
+            detail.getOverallFeedback(),
+            detail.getImprovements() == null ? List.of() : detail.getImprovements(),
+            answers);
+      }
+      InterviewDetailDTO detail = interviewHistoryService.getInterviewDetail(application.getInterviewSessionId());
+      if (detail == null) {
+        return null;
+      }
+      List<EvaluatedAnswer> answers = detail.answers() == null ? List.of()
+          : detail.answers().stream()
+              .map(a -> new EvaluatedAnswer(
+                  a.questionIndex() == null ? 0 : a.questionIndex(),
+                  a.category(),
+                  a.question(),
+                  a.userAnswer(),
+                  a.score(),
+                  a.feedback(),
+                  a.referenceAnswer(),
+                  a.keyPoints() == null ? List.of() : a.keyPoints()))
+              .toList();
+      return new EvaluatedInterview(
+          detail.overallScore(),
+          detail.overallFeedback(),
+          detail.improvements() == null ? List.of() : detail.improvements(),
+          answers);
+    } catch (Exception e) {
+      log.warn("读取结构化面试评估详情失败: applicationId={}, error={}", application.getId(), e.getMessage());
+      return null;
+    }
   }
 
   /** 读取评估结果（用于 AI 决策） */

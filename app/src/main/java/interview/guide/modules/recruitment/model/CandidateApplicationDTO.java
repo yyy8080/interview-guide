@@ -5,7 +5,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 /**
- * 候选人视角的投递记录（仅在简历初筛未通过时附带脱敏的未通过原因反馈，不含分数与面试/HR 内部审核细节）
+ * 候选人视角的投递记录（在初筛未通过或答题终态未通过时附带脱敏的未通过原因及未通过题目解析，不暴露 HR 内部评语）
  */
 public record CandidateApplicationDTO(
     Long id,
@@ -15,6 +15,8 @@ public record CandidateApplicationDTO(
     String location,
     CandidateStage stage,
     String candidateLevel,
+    String aiExperience,
+    String specialties,
     List<InterviewMode> availableModes,
     InterviewMode interviewMode,
     Integer questionCount,
@@ -25,6 +27,7 @@ public record CandidateApplicationDTO(
     LocalDateTime interviewDeadlineAt,
     LocalDateTime interviewCompletedAt,
     CandidateOfflineDTO offlineInterview,
-    CandidateScreeningFeedbackDTO screeningFeedback
+    CandidateScreeningFeedbackDTO screeningFeedback,
+    CandidateAssessmentFeedbackDTO assessmentFeedback
 ) {
 }

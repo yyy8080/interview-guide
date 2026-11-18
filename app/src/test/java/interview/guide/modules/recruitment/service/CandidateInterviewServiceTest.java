@@ -394,4 +394,78 @@ class CandidateInterviewServiceTest {
         interview.guide.modules.recruitment.model.ProctorEventType.TAB_HIDDEN, "笔试", 5_000L, 2, null));
     verify(proctorEventRepository).save(any());
   }
+
+  @Test
+  @DisplayName("记录防作弊粘贴事件保存实际粘贴文本并对超长文本安全截断，开考时落库 AI 经验与个人特长")
+  void recordsActualPastedTextAndStoresPreTestProfile() {
+    ApplicationEntity app = new ApplicationEntity();
+    app.setId(108L);
+    app.setCandidateId(10L);
+    app.setJobId(12L);
+    app.setResumeId(60L);
+    app.setStatus(ApplicationStatus.INTERVIEW_INVITED);
+    app.setInviteExpiresAt(LocalDateTime.now().plusDays(2));
+
+    JobPositionEntity job = new JobPositionEntity();
+    job.setId(12L);
+    job.setTitle("AI 后端工程师");
+    job.setInterviewMode(InterviewMode.VOICE);
+    job.setJdText("负责企业级智能体平台开发");
+    job.setTimeLimitMinutes(30);
+
+    when(applicationRepository.findByIdAndCandidateId(108L, 10L)).thenReturn(Optional.of(app));
+    when(applicationRepository.findByIdForUpdate(108L)).thenReturn(Optional.of(app));
+    when(jobPositionService.getEntity(12L)).thenReturn(job);
+    when(redisService.executeWithLock(any(), anyLong(), anyLong(), any(), any()))
+        .thenAnswer(inv -> ((RedisService.LockedOperation<?>) inv.getArgument(4)).execute());
+    doAnswer(inv -> {
+      ((Runnable) inv.getArgument(0)).run();
+      return null;
+    }).when(transactionalExecutor).run(any());
+
+    SessionResponseDTO voiceResp = new SessionResponseDTO();
+    voiceResp.setSessionId(909L);
+    when(voiceInterviewService.createSession(any())).thenReturn(voiceResp);
+    doAnswer(inv -> {
+      ApplicationEntity target = inv.getArgument(0);
+      target.setStatus(inv.getArgument(1));
+      target.setInterviewStartedAt(LocalDateTime.now());
+      return null;
+    }).when(stateMachine).transit(any(), any(), any(), any(), any());
+
+    CandidateInterviewDTO started = service.start(
+        10L, 108L, InterviewMode.VOICE, "senior", "PROJECT_PRACTICE", "主导过 Spring AI + RAG 知识库问答");
+    assertThat(started.aiExperience()).isEqualTo("PROJECT_PRACTICE");
+    assertThat(started.specialties()).isEqualTo("主导过 Spring AI + RAG 知识库问答");
+    assertThat(app.getAiExperience()).isEqualTo("PROJECT_PRACTICE");
+    assertThat(app.getSpecialties()).isEqualTo("主导过 Spring AI + RAG 知识库问答");
+
+    ArgumentCaptor<interview.guide.modules.voiceinterview.dto.CreateSessionRequest> voiceCaptor =
+        ArgumentCaptor.forClass(interview.guide.modules.voiceinterview.dto.CreateSessionRequest.class);
+    verify(voiceInterviewService).createSession(voiceCaptor.capture());
+    assertThat(voiceCaptor.getValue().getCustomJdText())
+        .contains("有 AI / 大模型项目实战经验")
+        .contains("主导过 Spring AI + RAG 知识库问答");
+
+    // 粘贴实际内容文本记录与超长截断
+    String pasted = "Redisson 分布式锁通过 Lua 脚本保证释放原子性\u0000";
+    service.recordProctor(10L, 108L, new interview.guide.modules.recruitment.model.ProctorEventRequest(
+        interview.guide.modules.recruitment.model.ProctorEventType.PASTE,
+        "文字面试作答", null, 0, pasted.length(), pasted));
+
+    String hugePaste = "A".repeat(4100);
+    service.recordProctor(10L, 108L, new interview.guide.modules.recruitment.model.ProctorEventRequest(
+        interview.guide.modules.recruitment.model.ProctorEventType.PASTE,
+        "文字面试作答", null, 1, hugePaste.length(), hugePaste));
+
+    ArgumentCaptor<interview.guide.modules.recruitment.model.ProctorEventEntity> eventCaptor =
+        ArgumentCaptor.forClass(interview.guide.modules.recruitment.model.ProctorEventEntity.class);
+    verify(proctorEventRepository, org.mockito.Mockito.times(2)).save(eventCaptor.capture());
+    List<interview.guide.modules.recruitment.model.ProctorEventEntity> savedEvents = eventCaptor.getAllValues();
+    assertThat(savedEvents.get(0).getPastedText())
+        .isEqualTo("Redisson 分布式锁通过 Lua 脚本保证释放原子性");
+    assertThat(savedEvents.get(1).getPastedText())
+        .startsWith("A".repeat(100))
+        .contains("超出 4000 字已截断");
+  }
 }

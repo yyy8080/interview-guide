@@ -222,4 +222,48 @@ class AdminApplicationServiceTest {
     assertThat(funnel).extracting(ApplicationStatsDTO.FunnelStage::count)
         .containsExactly(14L, 10L, 8L, 5L, 3L, 2L);
   }
+
+  @Test
+  @DisplayName("后台投递详情完整返回候选人实际粘贴的文本内容及答题前补充的 AI 经验与个人特长")
+  void detailExposesActualPastedTextAndCandidateProfile() {
+    ApplicationEntity app = new ApplicationEntity();
+    app.setId(55L);
+    app.setCandidateId(7L);
+    app.setCandidateName("林同学");
+    app.setJobId(3L);
+    app.setResumeId(8L);
+    app.setCandidateLevel("senior");
+    app.setAiExperience("PROJECT_PRACTICE");
+    app.setSpecialties("开源贡献者，落地过企业内部 RAG 知识库");
+    app.setStatus(ApplicationStatus.AI_PASSED);
+
+    interview.guide.modules.recruitment.model.ProctorEventEntity pasteEvent =
+        new interview.guide.modules.recruitment.model.ProctorEventEntity();
+    pasteEvent.setId(901L);
+    pasteEvent.setApplicationId(55L);
+    pasteEvent.setEventType(interview.guide.modules.recruitment.model.ProctorEventType.PASTE);
+    pasteEvent.setDetail("文字面试作答");
+    pasteEvent.setQuestionIndex(0);
+    pasteEvent.setChars(36);
+    pasteEvent.setPastedText("通过 Redisson WatchDog 每 10 秒自动续期分布式锁");
+    pasteEvent.setOccurredAt(LocalDateTime.now());
+
+    when(applicationRepository.findById(55L)).thenReturn(Optional.of(app));
+    when(proctorEventRepository.countByType(55L)).thenReturn(List.of());
+    when(proctorEventRepository.findByApplicationIdOrderByOccurredAtAsc(55L)).thenReturn(List.of(pasteEvent));
+    when(answerTelemetryRepository.findByApplicationIdOrderByQuestionIndexAsc(55L)).thenReturn(List.of());
+    when(statusLogRepository.findByApplicationIdOrderByCreatedAtAscIdAsc(55L)).thenReturn(List.of());
+    when(adminUserRepository.findAllById(any())).thenReturn(List.of());
+    when(scheduleRepository.findByApplicationId(55L)).thenReturn(Optional.empty());
+    when(writtenTestRepository.findByApplicationId(55L)).thenReturn(Optional.empty());
+    when(mailOutboxService.listByApplication(55L)).thenReturn(List.of());
+
+    ApplicationDetailDTO dto = service.detail(55L);
+
+    assertThat(dto.aiExperience()).isEqualTo("PROJECT_PRACTICE");
+    assertThat(dto.specialties()).isEqualTo("开源贡献者，落地过企业内部 RAG 知识库");
+    assertThat(dto.proctorEvents()).hasSize(1);
+    assertThat(dto.proctorEvents().getFirst().pastedText())
+        .isEqualTo("通过 Redisson WatchDog 每 10 秒自动续期分布式锁");
+  }
 }

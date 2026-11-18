@@ -14,6 +14,8 @@ public record CandidateInterviewDTO(
     Long applicationId,
     String jobTitle,
     String candidateLevel,
+    String aiExperience,
+    String specialties,
     InterviewMode mode,
     CandidateStage stage,
     LocalDateTime startedAt,

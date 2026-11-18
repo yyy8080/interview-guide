@@ -111,7 +111,12 @@ public class CandidatePortalController {
       @PathVariable Long id,
       @Valid @RequestBody StartInterviewRequest request) {
     return Result.success(interviewService.start(
-        candidateAuthService.requireCandidateId(token), id, request.mode(), request.candidateLevel()));
+        candidateAuthService.requireCandidateId(token),
+        id,
+        request.mode(),
+        request.candidateLevel(),
+        request.aiExperience(),
+        request.specialties()));
   }
 
   @GetMapping("/applications/{id}/interview")
@@ -169,7 +174,11 @@ public class CandidatePortalController {
       @PathVariable Long id,
       @Valid @RequestBody(required = false) StartWrittenTestRequest request) {
     return Result.success(writtenTestService.start(
-        candidateAuthService.requireCandidateId(token), id, request != null ? request.candidateLevel() : null));
+        candidateAuthService.requireCandidateId(token),
+        id,
+        request != null ? request.candidateLevel() : null,
+        request != null ? request.aiExperience() : null,
+        request != null ? request.specialties() : null));
   }
 
   @PutMapping("/applications/{id}/written-test/answers")

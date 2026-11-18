@@ -158,7 +158,7 @@ public class AdminApplicationService {
     List<ProctorEventEntity> eventEntities = proctorEventRepository.findByApplicationIdOrderByOccurredAtAsc(id);
     List<ProctorEventDTO> proctorEvents = eventEntities.stream()
         .map(e -> new ProctorEventDTO(e.getId(), e.getEventType(), e.getDetail(), e.getDurationMs(),
-            e.getQuestionIndex(), e.getChars(), e.getOccurredAt()))
+            e.getQuestionIndex(), e.getChars(), e.getPastedText(), e.getOccurredAt()))
         .toList();
     List<AnswerTelemetryEntity> telemetryEntities = answerTelemetryRepository.findByApplicationIdOrderByQuestionIndexAsc(id);
     // 实时计算（面试进行中也可查看）；列表展示使用交卷时落库的结果
@@ -200,6 +200,8 @@ public class AdminApplicationService {
         app.getCandidatePhone(),
         interview.guide.modules.recruitment.model.CandidateLevels.resolve(
             app.getCandidateLevel(), job != null ? job.getDifficulty() : null),
+        app.getAiExperience(),
+        app.getSpecialties(),
         app.getJobId(), job != null ? job.getTitle() : "（岗位已删除）",
         job != null ? job.getDifficulty() : null,
         job != null ? job.getAiPassThreshold() : null, job != null ? job.getScreeningThreshold() : null,

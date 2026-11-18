@@ -341,7 +341,15 @@ test.describe('企业招聘全流程（候选人门户 + HR 后台审核与邮�
       hrReviewedAt: currentStatus !== 'AI_PASSED' ? '2026-11-17T11:00:00' : null,
       proctorCounts: { PASTE: 1 },
       proctorEvents: [
-        { id: 1, type: 'PASTE', detail: 'Q1', occurredAt: '2026-11-17T10:08:00' },
+        {
+          id: 1,
+          type: 'PASTE',
+          detail: '文字面试作答',
+          questionIndex: 0,
+          chars: 46,
+          pastedText: '通过 Redisson WatchDog 后台定时任务每 10 秒执行 Lua 脚本自动续期锁',
+          occurredAt: '2026-11-17T10:08:00',
+        },
       ],
       proctorRisk: {
         score: 30,
@@ -521,9 +529,12 @@ test.describe('企业招聘全流程（候选人门户 + HR 后台审核与邮�
     await expect(page.getByTestId('risk-cell-101')).toHaveText('中风险 · 30');
     await page.getByRole('link', { name: '去审核' }).click();
 
-    // 2. 审核工作台查看 AI 评估结论与行为监测并点击人工通过
+    // 2. 审核工作台查看 AI 评估结论与实际粘贴文本明细（不再仅展示粘贴次数）并点击人工通过
     await expect(page.getByText('技术功底扎实，建议进入线下面试深挖系统容灾方案')).toBeVisible();
-    await expect(page.getByText('粘贴内容：1 次')).toBeVisible();
+    await expect(page.getByText('粘贴内容：1 次')).toHaveCount(0);
+    await expect(page.getByTestId('proctor-pasted-texts')).toContainText(
+      '通过 Redisson WatchDog 后台定时任务每 10 秒执行 Lua 脚本自动续期锁',
+    );
     await expect(page.getByTestId('proctor-risk-badge')).toHaveText('作答行为：中风险（30 分）');
     await expect(page.getByTestId('proctor-findings')).toContainText('第 1 题粘贴 260 字');
     await page.getByPlaceholder(/填写审核意见/).fill('同意安排线下面试');
@@ -1235,5 +1246,450 @@ test.describe('企业招聘全流程（候选人门户 + HR 后台审核与邮�
     await page.goto('/careers/99');
     await expect(page.getByTestId('not-invited-banner')).toContainText('非受邀邮箱不允许投递简历与参加面试');
     await expect(page.getByRole('button', { name: '提交简历' })).toHaveCount(0);
+  });
+
+  test('候选人答题前选填 AI 经验与个人特长、粘贴文本实时采集并在 HR 后台展示原文、未通过时展示原因与错题解析', async ({
+    page,
+  }) => {
+    await page.addInitScript(() => {
+      window.localStorage.setItem('ig_candidate_token', 'cand-jwt-full-feedback-950');
+      window.localStorage.setItem('ig_candidate_token_expires_at', '2099-12-31T23:59:59.000Z');
+      window.localStorage.setItem(
+        'ig_candidate_profile',
+        JSON.stringify({ id: 120, email: 'chen@example.com', name: '陈思远', phone: '13800001111' }),
+      );
+    });
+
+    let appStage: 'INTERVIEW_PENDING' | 'INTERVIEWING' | 'REJECTED' = 'INTERVIEW_PENDING';
+    let writtenStatus: 'IN_PROGRESS' | 'GRADED' | null = null;
+    let interviewStarted = false;
+    let savedAiExp: 'NONE' | 'TOOL_USER' | 'PROJECT_PRACTICE' | null = null;
+    let savedSpecialties: string | null = null;
+    const capturedWrittenStartBodies: Array<Record<string, unknown>> = [];
+    const capturedInterviewStartBodies: Array<Record<string, unknown>> = [];
+    const capturedPasteEvents: Array<Record<string, unknown>> = [];
+
+    const assessmentFeedback = {
+      rejectStageLabel: '笔试 / 面试评估未通过',
+      summary: '候选人对分布式锁原子释放与 MySQL 隔离级别理解存在明显偏差，未达到岗位通过标准。',
+      scoreSummary: '综合得分 48 分（在线笔试 50 分，答对 1/2 题；在线面试 47 分；岗位通过线 70 分）',
+      reasons: [
+        '笔试填空题对 Redis 原子释放脚本回答错误',
+        '面试简答题未说明 Redisson 看门狗定时续期机制',
+      ],
+      failedWrittenQuestions: [
+        {
+          index: 1,
+          type: 'FILL_BLANK',
+          question: '释放 Redis 分布式锁需使用____脚本保证比较与删除原子性',
+          options: [],
+          category: 'Redis',
+          candidateAnswer: ['Shell 脚本'],
+          correctAnswers: ['Lua'],
+          explanation: 'Redis 服务端单线程原子执行 Lua 脚本，避免判断锁归属后过期误删他人锁。',
+          judgeReason: 'Shell 脚本无法在 Redis 服务端原子执行',
+        },
+      ],
+      failedInterviewQuestions: [
+        {
+          questionIndex: 0,
+          category: '分布式协调',
+          question: '请详细说明 Redisson 看门狗自动续期原理及客户端宕机后的处理机制？',
+          userAnswer: '设置一个很长的过期时间即可',
+          score: 47,
+          passThreshold: 70,
+          feedback: '未回答默认 30s 锁超时、每 10s 后台定时执行 Lua 续期以及宕机后依赖 TTL 自动释放的核心逻辑。',
+          referenceAnswer:
+            '未显式指定 leaseTime 时默认加锁 30 秒，并启动 WatchDog 每 10 秒通过 Lua 脚本检查若仍持有锁则重置为 30 秒；若客户端宕机停止续期，锁在 TTL 到期后自动释放。',
+          keyPoints: ['默认 30s 超时', '每 leaseTime/3 定时 Lua 续期', '宕机自动过期释放'],
+        },
+      ],
+    };
+
+    const buildCandidateApp = () => ({
+      id: 950,
+      jobId: 30,
+      jobTitle: '高级 AI 平台研发工程师',
+      department: '智能工程部',
+      location: '上海',
+      candidateLevel: 'senior',
+      aiExperience: savedAiExp,
+      specialties: savedSpecialties,
+      stage: appStage,
+      availableModes: ['TEXT'],
+      interviewMode: interviewStarted ? 'TEXT' : null,
+      questionCount: 1,
+      timeLimitMinutes: 30,
+      submittedAt: '2026-11-18T14:00:00',
+      inviteExpiresAt: '2026-11-25T14:00:00',
+      interviewStartedAt: interviewStarted ? '2026-11-18T14:10:00' : null,
+      interviewDeadlineAt: interviewStarted ? '2026-11-18T14:40:00' : null,
+      interviewCompletedAt: appStage === 'REJECTED' ? '2026-11-18T14:20:00' : null,
+      offlineInterview: null,
+      screeningFeedback: null,
+      assessmentFeedback: appStage === 'REJECTED' ? assessmentFeedback : null,
+    });
+
+    await page.route('**/api/candidate/applications', route => ok(route, [buildCandidateApp()]));
+    await page.route('**/api/candidate/applications/950', route => ok(route, buildCandidateApp()));
+
+    await page.route('**/api/candidate/applications/950/interview', route =>
+      ok(route, {
+        applicationId: 950,
+        jobTitle: '高级 AI 平台研发工程师',
+        candidateLevel: 'senior',
+        aiExperience: savedAiExp,
+        specialties: savedSpecialties,
+        mode: interviewStarted ? 'TEXT' : null,
+        stage: appStage,
+        startedAt: interviewStarted ? '2026-11-18T14:10:00' : null,
+        deadlineAt: interviewStarted ? '2026-11-18T14:40:00' : null,
+        remainingSeconds: interviewStarted ? 1800 : null,
+        totalQuestions: interviewStarted ? 1 : 0,
+        currentQuestionIndex: 0,
+        currentQuestion:
+          interviewStarted && appStage === 'INTERVIEWING'
+            ? {
+                questionIndex: 0,
+                question: '请详细说明 Redisson 看门狗自动续期原理及客户端宕机后的处理机制？',
+                category: '分布式协调',
+                followUp: false,
+              }
+            : null,
+        finished: appStage === 'REJECTED',
+        voiceSessionId: null,
+        voiceWsPath: null,
+        plannedDurationMinutes: null,
+        writtenTestEnabled: true,
+        writtenTestStatus: writtenStatus,
+        writtenQuestionCount: 2,
+        writtenTimeLimitMinutes: 15,
+      }),
+    );
+
+    await page.route('**/api/candidate/applications/950/written-test/start', async route => {
+      const body = route.request().postDataJSON() as Record<string, unknown>;
+      capturedWrittenStartBodies.push(body);
+      savedAiExp = (body.aiExperience as typeof savedAiExp) ?? null;
+      savedSpecialties = (body.specialties as string) ?? null;
+      writtenStatus = 'IN_PROGRESS';
+      await ok(route, {
+        applicationId: 950,
+        candidateLevel: 'senior',
+        aiExperience: savedAiExp,
+        specialties: savedSpecialties,
+        status: 'IN_PROGRESS',
+        totalQuestions: 2,
+        questions: [
+          {
+            index: 0,
+            type: 'SINGLE_CHOICE',
+            question: 'MySQL InnoDB 默认事务隔离级别是什么？',
+            options: ['READ COMMITTED', 'REPEATABLE READ', 'SERIALIZABLE'],
+            category: 'MySQL',
+          },
+          {
+            index: 1,
+            type: 'FILL_BLANK',
+            question: '释放 Redis 分布式锁需使用____脚本保证比较与删除原子性',
+            options: [],
+            category: 'Redis',
+          },
+        ],
+        answers: {},
+        startedAt: '2026-11-18T14:02:00',
+        deadlineAt: '2026-11-18T14:17:00',
+        remainingSeconds: 900,
+        watermarkText: '陈思远 · #950',
+        proctorAwayReminder: true,
+      });
+    });
+
+    await page.route('**/api/candidate/applications/950/written-test/answers', route => ok(route, null));
+    await page.route('**/api/candidate/applications/950/written-test/submit', async route => {
+      writtenStatus = 'GRADED';
+      await ok(route, {
+        applicationId: 950,
+        candidateLevel: 'senior',
+        aiExperience: savedAiExp,
+        specialties: savedSpecialties,
+        status: 'GRADED',
+        totalQuestions: 2,
+        questions: [],
+        answers: {},
+        startedAt: '2026-11-18T14:02:00',
+        deadlineAt: '2026-11-18T14:17:00',
+        remainingSeconds: null,
+        watermarkText: '陈思远 · #950',
+        proctorAwayReminder: true,
+      });
+    });
+
+    await page.route('**/api/candidate/applications/950/interview/start', async route => {
+      const body = route.request().postDataJSON() as Record<string, unknown>;
+      capturedInterviewStartBodies.push(body);
+      savedAiExp = (body.aiExperience as typeof savedAiExp) ?? savedAiExp;
+      savedSpecialties = (body.specialties as string) ?? savedSpecialties;
+      interviewStarted = true;
+      appStage = 'INTERVIEWING';
+      await ok(route, {
+        applicationId: 950,
+        jobTitle: '高级 AI 平台研发工程师',
+        candidateLevel: 'senior',
+        aiExperience: savedAiExp,
+        specialties: savedSpecialties,
+        mode: 'TEXT',
+        stage: 'INTERVIEWING',
+        startedAt: '2026-11-18T14:10:00',
+        deadlineAt: '2026-11-18T14:40:00',
+        remainingSeconds: 1800,
+        totalQuestions: 1,
+        currentQuestionIndex: 0,
+        currentQuestion: {
+          questionIndex: 0,
+          question: '请详细说明 Redisson 看门狗自动续期原理及客户端宕机后的处理机制？',
+          category: '分布式协调',
+          followUp: false,
+        },
+        finished: false,
+        voiceSessionId: null,
+        voiceWsPath: null,
+        plannedDurationMinutes: null,
+        writtenTestEnabled: true,
+        writtenTestStatus: 'GRADED',
+        writtenQuestionCount: 2,
+        writtenTimeLimitMinutes: 15,
+      });
+    });
+
+    await page.route('**/api/candidate/applications/950/interview/answer', async route => {
+      appStage = 'REJECTED';
+      await ok(route, {
+        finished: true,
+        nextQuestion: null,
+        currentQuestionIndex: 1,
+        totalQuestions: 1,
+      });
+    });
+
+    await page.route('**/api/candidate/applications/950/proctor-events', async route => {
+      const payload = route.request().postDataJSON() as Record<string, unknown>;
+      if (payload.type === 'PASTE') {
+        capturedPasteEvents.push(payload);
+      }
+      await ok(route, null);
+    });
+
+    // 1. 笔试开考前选填「有 AI / 大模型项目实战经验」与其他个人特长
+    await page.goto('/careers/applications/950/interview');
+    await expect(page.getByTestId('written-profile-card')).toBeVisible();
+    await page.getByTestId('written-profile-ai-PROJECT_PRACTICE').click();
+    await page
+      .getByTestId('written-profile-specialties')
+      .fill('主导过企业级 Spring AI + RAG 知识库问答系统，熟悉 JVM 性能调优');
+    await page.getByTestId('start-written-btn').click();
+    await page.getByTestId('confirm-start-written-btn').click();
+
+    expect(capturedWrittenStartBodies).toHaveLength(1);
+    expect(capturedWrittenStartBodies[0]).toMatchObject({
+      candidateLevel: 'senior',
+      aiExperience: 'PROJECT_PRACTICE',
+      specialties: '主导过企业级 Spring AI + RAG 知识库问答系统，熟悉 JVM 性能调优',
+    });
+
+    // 2. 笔试填空题粘贴外部文本，验证上报实际粘贴文本内容
+    await page.getByTestId('written-opt-0-B').click();
+    const fillInput = page.getByTestId('written-fill-1');
+    await fillInput.evaluate((el, text) => {
+      const dt = new DataTransfer();
+      dt.setData('text/plain', text);
+      el.dispatchEvent(new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: dt }));
+    }, '粘贴自搜索结果：Shell 脚本释放锁');
+    await fillInput.fill('Shell 脚本');
+    await page.getByTestId('submit-written-btn').click();
+
+    // 3. 进入 AI 面试准备页：自动回显已填 AI 经验与个人特长，可继续补充后开考
+    await expect(page.getByTestId('written-finished-banner')).toBeVisible();
+    await expect(page.getByTestId('interview-profile-ai-PROJECT_PRACTICE')).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.getByTestId('interview-profile-specialties')).toHaveValue(
+      '主导过企业级 Spring AI + RAG 知识库问答系统，熟悉 JVM 性能调优',
+    );
+    await page.getByTestId('start-interview-btn').click();
+    await page.getByTestId('confirm-start-interview-btn').click();
+
+    expect(capturedInterviewStartBodies[0]).toMatchObject({
+      mode: 'TEXT',
+      candidateLevel: 'senior',
+      aiExperience: 'PROJECT_PRACTICE',
+      specialties: '主导过企业级 Spring AI + RAG 知识库问答系统，熟悉 JVM 性能调优',
+    });
+
+    // 4. 文字面试作答框粘贴大段内容并提交交卷，校验粘贴事件携带完整 pastedText
+    const answerBox = page.getByPlaceholder(/请输入您的回答/);
+    await answerBox.evaluate((el, text) => {
+      const dt = new DataTransfer();
+      dt.setData('text/plain', text);
+      el.dispatchEvent(new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: dt }));
+    }, '从外部复制粘贴的答案片段：设置一个很长的过期时间即可');
+    await answerBox.fill('设置一个很长的过期时间即可');
+
+    expect(capturedPasteEvents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: 'PASTE',
+          detail: '笔试填空',
+          questionIndex: 1,
+          pastedText: '粘贴自搜索结果：Shell 脚本释放锁',
+        }),
+        expect.objectContaining({
+          type: 'PASTE',
+          detail: '文字面试作答',
+          questionIndex: 0,
+          pastedText: '从外部复制粘贴的答案片段：设置一个很长的过期时间即可',
+        }),
+      ]),
+    );
+
+    await page.getByRole('button', { name: '提交并完成面试' }).click();
+
+    // 5. 提交后评估未通过：在完成页直接看到未通过原因 + 笔试错题解析 + 面试未达标题目解析
+    await expect(page.getByTestId('interview-rejected-result')).toBeVisible();
+    await expect(page.getByTestId('assessment-summary-950')).toContainText(
+      '候选人对分布式锁原子释放与 MySQL 隔离级别理解存在明显偏差',
+    );
+    await expect(page.getByTestId('assessment-score-summary-950')).toContainText('综合得分 48 分');
+    await expect(page.getByTestId('failed-written-item-950-1')).toContainText('Lua');
+    await expect(page.getByTestId('failed-written-item-950-1')).toContainText(
+      'Redis 服务端单线程原子执行 Lua 脚本',
+    );
+    await expect(page.getByTestId('failed-interview-item-950-0')).toContainText('本题得分：47 分（达标线 70 分）');
+    await expect(page.getByTestId('failed-interview-item-950-0')).toContainText(
+      '未显式指定 leaseTime 时默认加锁 30 秒',
+    );
+
+    // 6. 返回「我的投递」列表：同样能查看 AI 经验徽章、未通过原因及完整题目解析
+    await page.getByRole('link', { name: '返回我的投递' }).click();
+    await expect(page.getByTestId('my-app-ai-exp-950')).toContainText('AI 经验：有 AI / 大模型项目实战经验');
+    await expect(page.getByTestId('assessment-feedback-950')).toBeVisible();
+    await expect(page.getByTestId('failed-written-item-950-1')).toBeVisible();
+    await expect(page.getByTestId('failed-interview-item-950-0')).toBeVisible();
+
+    // 7. HR 后台查看投递详情：展示候选人 AI 经验与个人特长，并直接展示实际粘贴的文本内容而非次数
+    await seedAdminAuth(page, 'ADMIN');
+    await page.route('**/api/admin/applications/950', route =>
+      ok(route, {
+        id: 950,
+        status: 'AI_REJECTED',
+        candidateId: 120,
+        candidateName: '陈思远',
+        candidateEmail: 'chen@example.com',
+        candidatePhone: '13800001111',
+        candidateLevel: 'senior',
+        aiExperience: 'PROJECT_PRACTICE',
+        specialties: '主导过企业级 Spring AI + RAG 知识库问答系统，熟悉 JVM 性能调优',
+        jobId: 30,
+        jobTitle: '高级 AI 平台研发工程师',
+        jobDifficulty: 'senior',
+        aiPassThreshold: 70,
+        screeningThreshold: 60,
+        resumeId: 450,
+        resumeFilename: 'chensiyuan.pdf',
+        resumeText: '6 年后端与大模型应用工程经验',
+        screeningScore: 84,
+        screeningResult: null,
+        writtenTest: null,
+        interviewMode: 'TEXT',
+        interviewSessionId: 'sess-950',
+        voiceSessionId: null,
+        interviewStartedAt: '2026-11-18T14:10:00',
+        interviewCompletedAt: '2026-11-18T14:20:00',
+        aiScore: 48,
+        aiDecision: 'REJECT',
+        aiReview: null,
+        taskError: null,
+        hrReviewerId: null,
+        hrReviewerName: null,
+        hrComment: null,
+        hrReviewedAt: null,
+        proctorCounts: { PASTE: 2, TAB_HIDDEN: 1 },
+        proctorEvents: [
+          {
+            id: 501,
+            type: 'PASTE',
+            detail: '笔试填空',
+            questionIndex: 1,
+            chars: 19,
+            pastedText: '粘贴自搜索结果：Shell 脚本释放锁',
+            occurredAt: '2026-11-18T14:05:00',
+          },
+          {
+            id: 502,
+            type: 'PASTE',
+            detail: '文字面试作答',
+            questionIndex: 0,
+            chars: 27,
+            pastedText: '从外部复制粘贴的答案片段：设置一个很长的过期时间即可',
+            occurredAt: '2026-11-18T14:14:00',
+          },
+          {
+            id: 503,
+            type: 'TAB_HIDDEN',
+            detail: null,
+            durationMs: 18000,
+            questionIndex: 0,
+            chars: null,
+            pastedText: null,
+            occurredAt: '2026-11-18T14:13:30',
+          },
+        ],
+        proctorRisk: {
+          score: 35,
+          level: 'MEDIUM',
+          findings: ['存在外部文本粘贴与切屏记录'],
+          flaggedQuestions: [0],
+        },
+        answerTelemetry: [],
+        logs: [],
+        offlineInterview: null,
+        emails: [],
+        submittedAt: '2026-11-18T14:00:00',
+        inviteExpiresAt: '2026-11-25T14:00:00',
+        updatedAt: '2026-11-18T14:20:05',
+      }),
+    );
+    await page.route('**/api/interview/sessions/sess-950/details', route =>
+      ok(route, {
+        id: 1,
+        sessionId: 'sess-950',
+        totalQuestions: 1,
+        status: 'EVALUATED',
+        overallScore: 47,
+        overallFeedback: '看门狗机制理解不足',
+        createdAt: '2026-11-18T14:10:00',
+        completedAt: '2026-11-18T14:20:00',
+        strengths: [],
+        improvements: ['补充分布式锁续期原理'],
+        answers: [],
+      }),
+    );
+
+    await page.goto('/admin/applications/950');
+    await expect(page.getByTestId('candidate-ai-exp-badge')).toContainText('AI 经验：有 AI / 大模型项目实战经验');
+    await expect(page.getByTestId('candidate-specialties-card')).toContainText(
+      '主导过企业级 Spring AI + RAG 知识库问答系统，熟悉 JVM 性能调优',
+    );
+    // 后台不再展示「粘贴内容：2 次」，而是直接展示两次实际粘贴的原始文本
+    await expect(page.getByText('粘贴内容：2 次')).toHaveCount(0);
+    await expect(page.getByText('切换标签页：1 次')).toBeVisible();
+    await expect(page.getByTestId('pasted-text-content-501')).toHaveText('粘贴自搜索结果：Shell 脚本释放锁');
+    await expect(page.getByTestId('pasted-text-content-502')).toHaveText(
+      '从外部复制粘贴的答案片段：设置一个很长的过期时间即可',
+    );
+
+    // 切换到「在线面试记录」Tab 同样可直接查看实际粘贴文本对照
+    await page.getByRole('button', { name: '在线面试记录' }).click();
+    await expect(page.getByTestId('interview-pasted-texts')).toContainText(
+      '从外部复制粘贴的答案片段：设置一个很长的过期时间即可',
+    );
   });
 });

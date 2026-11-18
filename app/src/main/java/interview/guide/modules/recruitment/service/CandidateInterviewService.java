@@ -72,6 +72,9 @@ public class CandidateInterviewService {
   /** 单个投递最多记录的防作弊事件数 */
   static final int MAX_PROCTOR_EVENTS = 500;
 
+  /** 单次粘贴事件最多保存的原文长度 */
+  static final int MAX_PASTED_TEXT_CHARS = 4000;
+
   private static final int DEFAULT_QUESTION_COUNT = 8;
 
   private final ApplicationRepository applicationRepository;
@@ -93,21 +96,25 @@ public class CandidateInterviewService {
 
   // ========== 开始面试 ==========
 
-  /**
-   * 开始在线面试：校验邀请 → 事务外创建面试会话（含 LLM 出题）→ 事务内写回会话并进入面试中
-   */
   public CandidateInterviewDTO start(Long candidateId, Long applicationId, InterviewMode mode) {
-    return start(candidateId, applicationId, mode, null);
+    return start(candidateId, applicationId, mode, null, null, null);
+  }
+
+  public CandidateInterviewDTO start(Long candidateId, Long applicationId, InterviewMode mode, String candidateLevel) {
+    return start(candidateId, applicationId, mode, candidateLevel, null, null);
   }
 
   /**
-   * 开始在线面试：校验邀请 → 事务外创建面试会话（按候选人自选定位出题）→ 事务内写回会话并进入面试中
+   * 开始在线面试：校验邀请 → 事务外创建面试会话（按候选人自选定位与补充特长出题）→ 事务内写回会话并进入面试中
    */
-  public CandidateInterviewDTO start(Long candidateId, Long applicationId, InterviewMode mode, String candidateLevel) {
+  public CandidateInterviewDTO start(Long candidateId, Long applicationId, InterviewMode mode,
+                                     String candidateLevel, String aiExperience, String specialties) {
     if (mode == null || mode == InterviewMode.BOTH) {
       throw new BusinessException(ErrorCode.BAD_REQUEST, "请选择文字面试或语音面试");
     }
     String requestedLevel = CandidateLevels.normalizeOrNull(candidateLevel);
+    String normalizedAiExp = interview.guide.modules.recruitment.model.CandidateAiExperiences.normalizeOrNull(aiExperience);
+    String sanitizedSpecialties = interview.guide.modules.recruitment.model.CandidateAiExperiences.sanitizeSpecialties(specialties);
     ApplicationEntity current = requireOwned(candidateId, applicationId);
     invitationService.assertCanAccessInterview(current);
     if (current.getStatus() == ApplicationStatus.INTERVIEWING) {
@@ -116,7 +123,7 @@ public class CandidateInterviewService {
     String lockKey = "recruitment:interview:start:" + applicationId;
     try {
       redisService.executeWithLock(lockKey, 1, 300, TimeUnit.SECONDS,
-          () -> doStart(candidateId, applicationId, mode, requestedLevel));
+          () -> doStart(candidateId, applicationId, mode, requestedLevel, normalizedAiExp, sanitizedSpecialties));
     } catch (BusinessException e) {
       if (ErrorCode.INTERNAL_ERROR.getCode().equals(e.getCode()) && e.getMessage() != null
           && e.getMessage().startsWith("获取锁")) {
@@ -127,7 +134,8 @@ public class CandidateInterviewService {
     return getState(candidateId, applicationId);
   }
 
-  private Void doStart(Long candidateId, Long applicationId, InterviewMode mode, String requestedLevel) {
+  private Void doStart(Long candidateId, Long applicationId, InterviewMode mode, String requestedLevel,
+                       String normalizedAiExp, String sanitizedSpecialties) {
     ApplicationEntity application = requireOwned(candidateId, applicationId);
     invitationService.assertCanAccessInterview(application);
     if (application.getStatus() == ApplicationStatus.INTERVIEWING) {
@@ -143,19 +151,21 @@ public class CandidateInterviewService {
     String effectiveLevel = interview.guide.modules.recruitment.model.CandidateLevels.resolve(
         requestedLevel != null ? requestedLevel : application.getCandidateLevel(),
         job.getDifficulty());
+    String effectiveAiExp = normalizedAiExp != null ? normalizedAiExp : application.getAiExperience();
+    String effectiveSpecialties = sanitizedSpecialties != null ? sanitizedSpecialties : application.getSpecialties();
 
     LocalDateTime now = LocalDateTime.now();
     String textSessionId = null;
     Long voiceSessionId = null;
     LocalDateTime deadline;
     if (mode == InterviewMode.TEXT) {
-      textSessionId = createTextSession(application, job, effectiveLevel);
+      textSessionId = createTextSession(application, job, effectiveLevel, effectiveAiExp, effectiveSpecialties);
       deadline = job.getTimeLimitMinutes() != null && job.getTimeLimitMinutes() > 0
           ? now.plusMinutes(job.getTimeLimitMinutes())
           : now.plus(TEXT_HARD_LIMIT);
     } else {
       int planned = plannedVoiceMinutes(job);
-      voiceSessionId = createVoiceSession(application, job, planned, effectiveLevel);
+      voiceSessionId = createVoiceSession(application, job, planned, effectiveLevel, effectiveAiExp, effectiveSpecialties);
       deadline = now.plusMinutes(planned).plus(VOICE_GRACE);
     }
 
@@ -166,6 +176,12 @@ public class CandidateInterviewService {
           .orElseThrow(() -> new BusinessException(ErrorCode.APPLICATION_NOT_FOUND));
       assertStartable(locked);
       locked.setCandidateLevel(effectiveLevel);
+      if (normalizedAiExp != null) {
+        locked.setAiExperience(normalizedAiExp);
+      }
+      if (sanitizedSpecialties != null) {
+        locked.setSpecialties(sanitizedSpecialties);
+      }
       locked.setInterviewMode(mode);
       locked.setInterviewSessionId(finalTextSessionId);
       locked.setVoiceSessionId(finalVoiceSessionId);
@@ -174,7 +190,8 @@ public class CandidateInterviewService {
           "候选人开始" + (mode == InterviewMode.TEXT ? "文字" : "语音")
               + "面试（定位：" + interview.guide.modules.recruitment.model.CandidateLevels.label(effectiveLevel) + "）");
     });
-    log.info("候选人开始在线面试: applicationId={}, mode={}, level={}", applicationId, mode, effectiveLevel);
+    log.info("候选人开始在线面试: applicationId={}, mode={}, level={}, aiExp={}",
+        applicationId, mode, effectiveLevel, effectiveAiExp);
     return null;
   }
 
@@ -197,7 +214,8 @@ public class CandidateInterviewService {
     }
   }
 
-  private String createTextSession(ApplicationEntity application, JobPositionEntity job, String effectiveLevel) {
+  private String createTextSession(ApplicationEntity application, JobPositionEntity job, String effectiveLevel,
+                                   String aiExperience, String specialties) {
     int questionCount = clamp(job.getQuestionCount() != null ? job.getQuestionCount() : DEFAULT_QUESTION_COUNT,
         3, 20);
     InterviewSessionDTO session;
@@ -218,9 +236,11 @@ public class CandidateInterviewService {
       }
     } else {
       ResumeEntity resume = resumeRepository.findById(application.getResumeId()).orElse(null);
+      String baseResumeText = resume != null ? resume.getResumeText() : null;
+      String enrichedResumeText = appendCandidateSupplement(baseResumeText, aiExperience, specialties);
       boolean custom = InterviewSkillService.CUSTOM_SKILL_ID.equals(job.getSkillId());
       session = interviewSessionService.createSession(new CreateInterviewRequest(
-          resume != null ? resume.getResumeText() : null,
+          enrichedResumeText,
           questionCount,
           resume != null ? resume.getId() : null,
           Boolean.TRUE,
@@ -235,11 +255,12 @@ public class CandidateInterviewService {
   }
 
   private Long createVoiceSession(ApplicationEntity application, JobPositionEntity job, int plannedMinutes,
-                                  String effectiveLevel) {
+                                  String effectiveLevel, String aiExperience, String specialties) {
+    String enrichedJd = appendCandidateSupplement(job.getJdText(), aiExperience, specialties);
     SessionResponseDTO response = voiceInterviewService.createSession(CreateSessionRequest.builder()
         .skillId(job.getSkillId())
         .difficulty(effectiveLevel)
-        .customJdText(job.getJdText())
+        .customJdText(enrichedJd)
         .resumeId(application.getResumeId())
         .introEnabled(true)
         .techEnabled(true)
@@ -249,6 +270,18 @@ public class CandidateInterviewService {
         .llmProvider(job.getLlmProvider())
         .build());
     return response.getSessionId();
+  }
+
+  private static String appendCandidateSupplement(String baseText, String aiExperience, String specialties) {
+    if ((aiExperience == null || aiExperience.isBlank()) && (specialties == null || specialties.isBlank())) {
+      return baseText;
+    }
+    String supplement = "【候选人答题前补充的 AI 相关经验与个人特长（可在提问中适当结合考察与核验真实性）】\n"
+        + interview.guide.modules.recruitment.model.CandidateAiExperiences.describeForPrompt(aiExperience, specialties);
+    if (baseText == null || baseText.isBlank()) {
+      return supplement;
+    }
+    return baseText + "\n\n" + supplement;
   }
 
   private int plannedVoiceMinutes(JobPositionEntity job) {
@@ -297,6 +330,8 @@ public class CandidateInterviewService {
         application.getId(),
         job.getTitle(),
         effectiveLevel,
+        application.getAiExperience(),
+        application.getSpecialties(),
         application.getInterviewMode(),
         application.getStatus().toCandidateStage(),
         application.getInterviewStartedAt(),
@@ -427,9 +462,26 @@ public class CandidateInterviewService {
     event.setDetail(detail != null && detail.length() > 255 ? detail.substring(0, 255) : detail);
     event.setDurationMs(request.durationMs());
     event.setQuestionIndex(request.questionIndex());
-    event.setChars(request.chars());
+    String cleanedPasted = sanitizePastedText(request.pastedText());
+    event.setPastedText(cleanedPasted);
+    event.setChars(request.chars() != null ? request.chars()
+        : (cleanedPasted != null ? cleanedPasted.length() : null));
     event.setOccurredAt(LocalDateTime.now());
     proctorEventRepository.save(event);
+  }
+
+  static String sanitizePastedText(String raw) {
+    if (raw == null) {
+      return null;
+    }
+    String normalized = raw.replace("\u0000", "").replace("\r\n", "\n");
+    if (normalized.isBlank()) {
+      return null;
+    }
+    if (normalized.length() > MAX_PASTED_TEXT_CHARS) {
+      return normalized.substring(0, MAX_PASTED_TEXT_CHARS) + "\n…（超出 " + MAX_PASTED_TEXT_CHARS + " 字已截断）";
+    }
+    return normalized;
   }
 
   /** 保存逐题作答遥测；遥测是辅助信息，失败不影响答题 */

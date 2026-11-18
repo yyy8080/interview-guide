@@ -187,4 +187,58 @@ class CandidateWrittenTestServiceTest {
     assertThat(app.getWrittenScore()).isEqualTo(100);
     verify(applicationRepository).save(app);
   }
+
+  @Test
+  @DisplayName("开始笔试支持选填 AI 经验与个人特长，落库并透传给 AI 笔试出题器")
+  void startsWrittenTestWithOptionalAiExperienceAndSpecialties() {
+    ApplicationEntity app = new ApplicationEntity();
+    app.setId(210L);
+    app.setCandidateId(10L);
+    app.setJobId(31L);
+    app.setCandidateName("赵六");
+    app.setStatus(ApplicationStatus.INTERVIEW_INVITED);
+    app.setInviteExpiresAt(LocalDateTime.now().plusDays(2));
+
+    JobPositionEntity job = new JobPositionEntity();
+    job.setId(31L);
+    job.setWrittenTestEnabled(true);
+    job.setWrittenTimeLimitMinutes(15);
+
+    List<WrittenQuestion> generated = List.of(
+        new WrittenQuestion(0, WrittenQuestionType.SINGLE_CHOICE, "RAG 检索增强的核心流程？",
+            List.of("仅微调", "检索相关片段注入上下文生成", "随机采样"), List.of("B"), "", "AI 工程")
+    );
+    when(applicationRepository.findByIdAndCandidateId(210L, 10L)).thenReturn(Optional.of(app));
+    when(applicationRepository.findByIdForUpdate(210L)).thenReturn(Optional.of(app));
+    when(jobPositionService.getEntity(31L)).thenReturn(job);
+    when(redisService.executeWithLock(any(), anyLong(), anyLong(), any(), any()))
+        .thenAnswer(inv -> ((RedisService.LockedOperation<?>) inv.getArgument(4)).execute());
+    doAnswer(inv -> {
+      ((Runnable) inv.getArgument(0)).run();
+      return null;
+    }).when(transactionalExecutor).run(any());
+    when(generator.generate(any(), any(),
+        org.mockito.ArgumentMatchers.eq("mid"),
+        org.mockito.ArgumentMatchers.eq("TOOL_USER"),
+        org.mockito.ArgumentMatchers.eq("熟悉 JVM 调优与 Cursor 辅助研发")))
+        .thenReturn(generated);
+
+    AtomicReference<WrittenTestEntity> savedRef = new AtomicReference<>();
+    when(writtenTestRepository.save(any())).thenAnswer(inv -> {
+      WrittenTestEntity e = inv.getArgument(0);
+      e.setId(510L);
+      savedRef.set(e);
+      return e;
+    });
+    when(writtenTestRepository.findByApplicationId(210L))
+        .thenAnswer(inv -> Optional.ofNullable(savedRef.get()));
+
+    CandidateWrittenTestDTO dto = service.start(
+        10L, 210L, "mid", "TOOL_USER", "  熟悉 JVM 调优与 Cursor 辅助研发  ");
+
+    assertThat(dto.aiExperience()).isEqualTo("TOOL_USER");
+    assertThat(dto.specialties()).isEqualTo("熟悉 JVM 调优与 Cursor 辅助研发");
+    assertThat(app.getAiExperience()).isEqualTo("TOOL_USER");
+    assertThat(app.getSpecialties()).isEqualTo("熟悉 JVM 调优与 Cursor 辅助研发");
+  }
 }

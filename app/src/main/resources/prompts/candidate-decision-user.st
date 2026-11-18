@@ -2,6 +2,8 @@
 岗位名称：{jobTitle}
 岗位建议级别：{jobDifficulty}
 候选人自选定位（笔试与面试出题级别）：{candidateLevel}
+候选人答题前补充（AI 经验与个人特长）：
+{candidateSupplement}
 通过分数线：{passThreshold}
 
 ---岗位JD开始---

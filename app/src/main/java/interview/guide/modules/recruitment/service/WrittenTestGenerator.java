@@ -78,6 +78,14 @@ public class WrittenTestGenerator {
    * 按指定应聘定位生成笔试题；LLM 调用失败或没有任何合规题目时抛出 WRITTEN_TEST_GENERATION_FAILED
    */
   public List<WrittenQuestion> generate(JobPositionEntity job, List<CategoryDTO> categories, String difficulty) {
+    return generate(job, categories, difficulty, null, null);
+  }
+
+  /**
+   * 按指定应聘定位及候选人补充的 AI 经验/个人特长生成笔试题
+   */
+  public List<WrittenQuestion> generate(JobPositionEntity job, List<CategoryDTO> categories, String difficulty,
+                                        String aiExperience, String specialties) {
     int single = Math.max(0, job.getWrittenSingleCount());
     int multi = Math.max(0, job.getWrittenMultiCount());
     int fill = Math.max(0, job.getWrittenFillCount());
@@ -88,6 +96,8 @@ public class WrittenTestGenerator {
         "jobTitle", job.getTitle(),
         "difficulty", difficultyLabel(effectiveDifficulty),
         "difficultyGuidance", interview.guide.modules.recruitment.model.CandidateLevels.questionGuidance(effectiveDifficulty),
+        "candidateSupplement", interview.guide.modules.recruitment.model.CandidateAiExperiences.describeForPrompt(
+            aiExperience, specialties),
         "jdText", ResumeScreeningService.truncate(job.getJdText(), MAX_JD_CHARS),
         "categories", describeCategories(categories),
         "singleCount", single,

@@ -48,6 +48,10 @@ public class ProctorEventEntity {
   /** 粘贴字数 / 语音改写字数 */
   private Integer chars;
 
+  /** 候选人实际粘贴的完整文本内容（截断保存） */
+  @Column(name = "pasted_text", columnDefinition = "TEXT")
+  private String pastedText;
+
   @Column(name = "occurred_at", nullable = false)
   private LocalDateTime occurredAt;
 }

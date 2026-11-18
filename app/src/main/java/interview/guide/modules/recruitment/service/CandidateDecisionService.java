@@ -121,6 +121,8 @@ public class CandidateDecisionService {
     variables.put("jobTitle", job.getTitle());
     variables.put("jobDifficulty", interview.guide.modules.recruitment.model.CandidateLevels.label(job.getDifficulty()));
     variables.put("candidateLevel", interview.guide.modules.recruitment.model.CandidateLevels.label(effectiveLevel));
+    variables.put("candidateSupplement", interview.guide.modules.recruitment.model.CandidateAiExperiences.describeForPrompt(
+        application.getAiExperience(), application.getSpecialties()));
     variables.put("passThreshold", threshold);
     variables.put("jdText", ResumeScreeningService.truncate(job.getJdText(), 6_000));
     variables.put("screeningSummary", describeScreening(application, screening));

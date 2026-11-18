@@ -43,7 +43,6 @@ import tools.jackson.databind.ObjectMapper;
  */
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class CandidateApplicationService {
 
   public static final String CONFIRM_PENDING = "PENDING";
@@ -62,6 +61,53 @@ public class CandidateApplicationService {
   private final ObjectMapper objectMapper;
   private final RecruitmentProperties properties;
   private final RecruitmentInvitationService invitationService;
+  private final CandidateAssessmentFeedbackService assessmentFeedbackService;
+
+  @org.springframework.beans.factory.annotation.Autowired
+  public CandidateApplicationService(ApplicationRepository applicationRepository,
+                                     CandidateRepository candidateRepository,
+                                     JobPositionRepository jobPositionRepository,
+                                     InterviewScheduleRepository scheduleRepository,
+                                     ResumeUploadService resumeUploadService,
+                                     ResumeRepository resumeRepository,
+                                     ApplicationStateMachine stateMachine,
+                                     ApplicationWorkflowService workflowService,
+                                     TransactionalExecutor transactionalExecutor,
+                                     ObjectMapper objectMapper,
+                                     RecruitmentProperties properties,
+                                     RecruitmentInvitationService invitationService,
+                                     CandidateAssessmentFeedbackService assessmentFeedbackService) {
+    this.applicationRepository = applicationRepository;
+    this.candidateRepository = candidateRepository;
+    this.jobPositionRepository = jobPositionRepository;
+    this.scheduleRepository = scheduleRepository;
+    this.resumeUploadService = resumeUploadService;
+    this.resumeRepository = resumeRepository;
+    this.stateMachine = stateMachine;
+    this.workflowService = workflowService;
+    this.transactionalExecutor = transactionalExecutor;
+    this.objectMapper = objectMapper;
+    this.properties = properties;
+    this.invitationService = invitationService;
+    this.assessmentFeedbackService = assessmentFeedbackService;
+  }
+
+  CandidateApplicationService(ApplicationRepository applicationRepository,
+                              CandidateRepository candidateRepository,
+                              JobPositionRepository jobPositionRepository,
+                              InterviewScheduleRepository scheduleRepository,
+                              ResumeUploadService resumeUploadService,
+                              ResumeRepository resumeRepository,
+                              ApplicationStateMachine stateMachine,
+                              ApplicationWorkflowService workflowService,
+                              TransactionalExecutor transactionalExecutor,
+                              ObjectMapper objectMapper,
+                              RecruitmentProperties properties,
+                              RecruitmentInvitationService invitationService) {
+    this(applicationRepository, candidateRepository, jobPositionRepository, scheduleRepository,
+        resumeUploadService, resumeRepository, stateMachine, workflowService, transactionalExecutor,
+        objectMapper, properties, invitationService, null);
+  }
 
   /**
    * 投递岗位：校验 → 上传解析简历（事务外）→ 事务内创建投递单并进入初筛 / 面试邀请
@@ -347,6 +393,8 @@ public class CandidateApplicationService {
       screeningFeedback = CandidateScreeningFeedbackDTO.fromJson(
           app.getScreeningResultJson(), objectMapper, canResubmit, app.getResumeRevisionCount(), maxRevisions);
     }
+    interview.guide.modules.recruitment.model.CandidateAssessmentFeedbackDTO assessmentFeedback =
+        assessmentFeedbackService != null ? assessmentFeedbackService.buildIfRejected(app, job) : null;
     return new CandidateApplicationDTO(
         app.getId(),
         app.getJobId(),
@@ -356,6 +404,8 @@ public class CandidateApplicationService {
         app.getStatus().toCandidateStage(),
         CandidateLevels.resolve(
             app.getCandidateLevel(), job != null ? job.getDifficulty() : null),
+        app.getAiExperience(),
+        app.getSpecialties(),
         availableModes(job),
         app.getInterviewMode(),
         job != null ? job.getQuestionCount() : null,
@@ -366,7 +416,8 @@ public class CandidateApplicationService {
         app.getInterviewDeadlineAt(),
         app.getInterviewCompletedAt(),
         offline,
-        screeningFeedback);
+        screeningFeedback,
+        assessmentFeedback);
   }
 
   private static String trimToNull(String value) {

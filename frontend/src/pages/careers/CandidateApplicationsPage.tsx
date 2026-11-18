@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { candidateApi } from '../../api/candidate';
 import { getErrorMessage } from '../../api/request';
+import CandidateAssessmentFeedbackCard from '../../components/CandidateAssessmentFeedbackCard';
 import CandidateLevelSelector from '../../components/CandidateLevelSelector';
 import ConfirmDialog from '../../components/ConfirmDialog';
 import { ROUTES } from '../../constants/routes';
@@ -20,6 +21,7 @@ import { formatDateTime } from '../../utils/date';
 import { isCandidateAuthenticated } from '../../utils/candidateStorage';
 import { INTERVIEW_MODE_LABELS, JOB_DIFFICULTY_LABELS, type JobDifficulty } from '../../types/job';
 import {
+  AI_EXPERIENCE_LABELS,
   CANDIDATE_STAGE_LABELS,
   type CandidateApplication,
   type CandidateStage,
@@ -215,6 +217,14 @@ export default function CandidateApplicationsPage() {
                         定位：{JOB_DIFFICULTY_LABELS[app.candidateLevel]}
                       </span>
                     )}
+                    {app.aiExperience && (
+                      <span
+                        data-testid={`my-app-ai-exp-${app.id}`}
+                        className="rounded-full bg-indigo-50 px-2.5 py-0.5 text-xs font-medium text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300"
+                      >
+                        AI 经验：{AI_EXPERIENCE_LABELS[app.aiExperience]}
+                      </span>
+                    )}
                   </div>
                   <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500 dark:text-slate-400">
                     {app.department && <span>{app.department}</span>}
@@ -401,6 +411,11 @@ export default function CandidateApplicationsPage() {
                       </p>
                     )}
                   </div>
+                ) : app.assessmentFeedback ? (
+                  <CandidateAssessmentFeedbackCard
+                    applicationId={app.id}
+                    feedback={app.assessmentFeedback}
+                  />
                 ) : (
                   <p className="text-sm text-slate-500 dark:text-slate-400">
                     感谢您的关注与投入，经综合评估本次未能进入下一环节，祝您求职顺利。
