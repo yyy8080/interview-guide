@@ -7,6 +7,7 @@ import type {
   MailSettings,
   MailSettingsRequest,
   PageResult,
+  WeComEmailAccount,
 } from '../types/recruitment';
 
 export const mailApi = {
@@ -16,6 +17,10 @@ export const mailApi = {
 
   updateSettings(payload: MailSettingsRequest): Promise<MailSettings> {
     return request.put('/api/admin/mail/settings', payload);
+  },
+
+  queryWeComAccount(): Promise<WeComEmailAccount> {
+    return request.get('/api/admin/mail/wecom/account');
   },
 
   sendTest(to: string): Promise<void> {

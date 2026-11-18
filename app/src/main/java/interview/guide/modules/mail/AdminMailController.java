@@ -11,7 +11,9 @@ import interview.guide.modules.mail.model.EmailTemplateRequest;
 import interview.guide.modules.mail.model.MailSettingsDTO;
 import interview.guide.modules.mail.model.MailSettingsRequest;
 import interview.guide.modules.mail.model.TestMailRequest;
+import interview.guide.modules.mail.model.WeComEmailAccountDTO;
 import interview.guide.modules.mail.service.EmailTemplateService;
+import interview.guide.modules.mail.service.MailDeliveryService;
 import interview.guide.modules.mail.service.MailOutboxService;
 import interview.guide.modules.mail.service.MailSettingsService;
 import jakarta.validation.Valid;
@@ -28,7 +30,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * 邮件配置（仅管理员）：SMTP 设置、模板、发送日志
+ * 邮件配置（仅管理员）：SMTP / 企业微信邮件 API 设置、模板、发送日志
  */
 @RestController
 @RequestMapping("/api/admin/mail")
@@ -38,6 +40,7 @@ public class AdminMailController {
   private final MailSettingsService settingsService;
   private final EmailTemplateService templateService;
   private final MailOutboxService outboxService;
+  private final MailDeliveryService deliveryService;
 
   @GetMapping("/settings")
   public Result<MailSettingsDTO> getSettings() {
@@ -47,6 +50,12 @@ public class AdminMailController {
   @PutMapping("/settings")
   public Result<MailSettingsDTO> updateSettings(@Valid @RequestBody MailSettingsRequest request) {
     return Result.success(settingsService.update(request, CurrentAdmin.id()));
+  }
+
+  @GetMapping("/wecom/account")
+  @RateLimit(dimension = RateLimit.Dimension.GLOBAL, count = 10, interval = 1, timeUnit = RateLimit.TimeUnit.MINUTES)
+  public Result<WeComEmailAccountDTO> queryWeComAccount() {
+    return Result.success(deliveryService.queryWeComAccount());
   }
 
   @PostMapping("/test")

@@ -1,15 +1,19 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
+  Building2,
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
   FileText,
+  Info,
   Loader2,
   Mail,
   RefreshCw,
   RotateCcw,
   Save,
+  Search,
   Send,
+  Server,
   Settings2,
 } from 'lucide-react';
 import { mailApi } from '../../api/mail';
@@ -21,8 +25,10 @@ import {
   type EmailLogItem,
   type EmailLogStatus,
   type EmailTemplateItem,
+  type MailChannel,
   type MailSecurity,
   type MailSettings,
+  type WeComEmailAccount,
 } from '../../types/recruitment';
 
 type MailTab = 'smtp' | 'templates' | 'logs';
@@ -36,9 +42,10 @@ export default function MailSettingsPage() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
-  // SMTP 表单
+  // 发件通道配置表单（支持 SMTP 与企业微信邮件 API）
   const [settings, setSettings] = useState<MailSettings | null>(null);
   const [enabled, setEnabled] = useState(false);
+  const [channel, setChannel] = useState<MailChannel>('SMTP');
   const [host, setHost] = useState('');
   const [port, setPort] = useState('465');
   const [security, setSecurity] = useState<MailSecurity>('SSL');
@@ -46,6 +53,11 @@ export default function MailSettingsPage() {
   const [password, setPassword] = useState('');
   const [fromAddress, setFromAddress] = useState('');
   const [fromName, setFromName] = useState('');
+  const [wecomCorpId, setWecomCorpId] = useState('');
+  const [wecomSecret, setWecomSecret] = useState('');
+  const [wecomApiBaseUrl, setWecomApiBaseUrl] = useState('');
+  const [wecomAccount, setWecomAccount] = useState<WeComEmailAccount | null>(null);
+  const [queryingWecomAccount, setQueryingWecomAccount] = useState(false);
   const [companyName, setCompanyName] = useState('');
   const [portalBaseUrl, setPortalBaseUrl] = useState('');
   const [contactInfo, setContactInfo] = useState('');
@@ -78,6 +90,7 @@ export default function MailSettingsPage() {
   const applySettings = (data: MailSettings) => {
     setSettings(data);
     setEnabled(data.enabled);
+    setChannel(data.channel ?? 'SMTP');
     setHost(data.host ?? '');
     setPort(data.port != null ? String(data.port) : '465');
     setSecurity(data.security ?? 'SSL');
@@ -85,6 +98,9 @@ export default function MailSettingsPage() {
     setPassword('');
     setFromAddress(data.fromAddress ?? '');
     setFromName(data.fromName ?? '');
+    setWecomCorpId(data.wecomCorpId ?? '');
+    setWecomSecret('');
+    setWecomApiBaseUrl(data.wecomApiBaseUrl ?? '');
     setCompanyName(data.companyName ?? '');
     setPortalBaseUrl(data.portalBaseUrl ?? '');
     setContactInfo(data.contactInfo ?? '');
@@ -140,6 +156,7 @@ export default function MailSettingsPage() {
     try {
       const saved = await mailApi.updateSettings({
         enabled,
+        channel,
         host: host.trim() || null,
         port: port.trim() ? Number(port) : null,
         username: username.trim() || null,
@@ -147,16 +164,36 @@ export default function MailSettingsPage() {
         security,
         fromAddress: fromAddress.trim() || null,
         fromName: fromName.trim() || null,
+        wecomCorpId: wecomCorpId.trim() || null,
+        wecomSecret: wecomSecret.trim() || null,
+        wecomApiBaseUrl: wecomApiBaseUrl.trim() || null,
         companyName: companyName.trim() || null,
         portalBaseUrl: portalBaseUrl.trim() || null,
         contactInfo: contactInfo.trim() || null,
       });
       applySettings(saved);
-      showNotice('SMTP 邮件设置已保存');
+      showNotice(channel === 'WECOM_API' ? '企业微信邮件 API 配置已保存' : 'SMTP 邮件设置已保存');
     } catch (err) {
       setError(getErrorMessage(err));
     } finally {
       setSavingSettings(false);
+    }
+  };
+
+  const handleQueryWecomAccount = async () => {
+    setQueryingWecomAccount(true);
+    setError(null);
+    try {
+      const account = await mailApi.queryWeComAccount();
+      setWecomAccount(account);
+      if (account.email && !fromAddress.trim()) {
+        setFromAddress(account.email);
+      }
+      showNotice(`企业微信应用邮箱连通正常：${account.email || '已授权'}`);
+    } catch (err) {
+      setError(getErrorMessage(err));
+    } finally {
+      setQueryingWecomAccount(false);
     }
   };
 
@@ -245,7 +282,7 @@ export default function MailSettingsPage() {
       <div>
         <h1 className="text-2xl font-bold text-slate-900 dark:text-white">邮件设置</h1>
         <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-          配置 SMTP 发件服务器（密码加密保存）、通知邮件模板及发件箱重试记录
+          支持企业微信邮件 API 与标准 SMTP 双通道发信（密钥 AES-GCM 加密保存）、通知邮件模板及发件箱重试记录
         </p>
       </div>
 
@@ -264,7 +301,7 @@ export default function MailSettingsPage() {
 
       <div className="flex flex-wrap gap-2 border-b border-slate-200 pb-2 dark:border-slate-700">
         {[
-          { key: 'smtp', label: 'SMTP 发件配置', icon: Settings2 },
+          { key: 'smtp', label: '发件通道配置', icon: Settings2 },
           { key: 'templates', label: '邮件模板', icon: FileText },
           { key: 'logs', label: '发送日志', icon: Mail },
         ].map(item => (
@@ -284,10 +321,10 @@ export default function MailSettingsPage() {
         ))}
       </div>
 
-      {/* 1. SMTP 设置 */}
+      {/* 1. 发件通道设置（SMTP / 企业微信邮件 API） */}
       {tab === 'smtp' && (
         <div className="space-y-6">
-          <form onSubmit={handleSaveSettings} className="dark-card space-y-4 p-6">
+          <form onSubmit={handleSaveSettings} className="dark-card space-y-5 p-6">
             <label className="flex items-center gap-2 text-sm font-medium text-slate-800 dark:text-slate-200">
               <input
                 type="checkbox"
@@ -295,89 +332,222 @@ export default function MailSettingsPage() {
                 onChange={e => setEnabled(e.target.checked)}
                 className="h-4 w-4 accent-primary-500"
               />
-              启用 SMTP 邮件发送（候选人验证码登录与面试通知依赖此项）
+              启用邮件发送服务（候选人邮箱验证码登录与面试流程通知依赖此项）
             </label>
 
-            <div className="grid gap-4 md:grid-cols-2">
-              <div>
-                <label className={labelClass}>SMTP 服务器主机</label>
-                <input
-                  value={host}
-                  onChange={e => setHost(e.target.value)}
-                  placeholder="如：smtp.exmail.qq.com"
-                  className={inputClass}
-                />
+            <div>
+              <label className={labelClass}>发送通道</label>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <button
+                  type="button"
+                  onClick={() => setChannel('SMTP')}
+                  className={`flex items-start gap-3 rounded-xl border p-3.5 text-left transition ${
+                    channel === 'SMTP'
+                      ? 'border-primary-500 bg-primary-50/70 dark:border-primary-400 dark:bg-primary-900/20'
+                      : 'border-slate-200 hover:border-slate-300 dark:border-slate-700 dark:hover:border-slate-600'
+                  }`}
+                >
+                  <Server className="mt-0.5 h-5 w-5 shrink-0 text-primary-500" />
+                  <div>
+                    <div className="text-sm font-semibold text-slate-900 dark:text-white">SMTP 发件服务器</div>
+                    <div className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+                      通过标准 SMTP / SSL / STARTTLS 协议及邮箱授权码发送邮件
+                    </div>
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setChannel('WECOM_API')}
+                  className={`flex items-start gap-3 rounded-xl border p-3.5 text-left transition ${
+                    channel === 'WECOM_API'
+                      ? 'border-primary-500 bg-primary-50/70 dark:border-primary-400 dark:bg-primary-900/20'
+                      : 'border-slate-200 hover:border-slate-300 dark:border-slate-700 dark:hover:border-slate-600'
+                  }`}
+                >
+                  <Building2 className="mt-0.5 h-5 w-5 shrink-0 text-primary-500" />
+                  <div>
+                    <div className="text-sm font-semibold text-slate-900 dark:text-white">企业微信邮件 API</div>
+                    <div className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+                      调用企业微信开放接口发信（应用自动分配专属发信邮箱，支持附件）
+                    </div>
+                  </div>
+                </button>
               </div>
-              <div className="grid grid-cols-2 gap-3">
+            </div>
+
+            {channel === 'WECOM_API' ? (
+              <>
+                <div className="rounded-xl border border-blue-100 bg-blue-50/70 p-4 text-xs leading-relaxed text-slate-700 dark:border-blue-900/40 dark:bg-blue-950/30 dark:text-slate-300">
+                  <div className="flex items-center gap-1.5 font-semibold text-blue-800 dark:text-blue-300">
+                    <Info className="h-4 w-4 shrink-0" />
+                    企业微信邮件 API 接入指引
+                  </div>
+                  <p className="mt-1">
+                    1. 企业管理员登录企业微信管理后台，进入「协作 - 邮件 - 可调用接口的应用」，勾选用于招聘发信的自建应用（或授权具备「邮件」权限的应用）。
+                  </p>
+                  <p className="mt-0.5">
+                    2. 应用获得权限后，企业微信会自动为其分配专属应用邮箱账号并作为发件人调用{' '}
+                    <code className="rounded bg-white/80 px-1 py-0.5 dark:bg-slate-800">
+                      /cgi-bin/exmail/app/compose_send
+                    </code>{' '}
+                    发送验证码、通知及线下面试 <code className="rounded bg-white/80 px-1 py-0.5 dark:bg-slate-800">invite.ics</code> 附件。
+                  </p>
+                </div>
+
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div>
+                    <label className={labelClass}>企业 ID (CorpID)</label>
+                    <input
+                      value={wecomCorpId}
+                      onChange={e => setWecomCorpId(e.target.value)}
+                      placeholder="如：ww1234567890abcdef"
+                      className={inputClass}
+                    />
+                  </div>
+                  <div>
+                    <label className={labelClass}>
+                      邮件应用 Secret {settings?.wecomSecretSet ? '（已加密保存，留空保持不变）' : ''}
+                    </label>
+                    <input
+                      type="password"
+                      value={wecomSecret}
+                      onChange={e => setWecomSecret(e.target.value)}
+                      placeholder={settings?.wecomSecretSet ? '••••••••（留空不修改）' : '请输入具备邮件权限的应用 Secret'}
+                      className={inputClass}
+                    />
+                  </div>
+
+                  <div>
+                    <label className={labelClass}>企业微信 API 地址（可选）</label>
+                    <input
+                      value={wecomApiBaseUrl}
+                      onChange={e => setWecomApiBaseUrl(e.target.value)}
+                      placeholder="默认 https://qyapi.weixin.qq.com"
+                      className={inputClass}
+                    />
+                  </div>
+                  <div>
+                    <div className="mb-1 flex items-center justify-between">
+                      <label className="text-xs font-medium text-slate-600 dark:text-slate-300">
+                        应用发信邮箱 / 日历组织者邮箱（可选）
+                      </label>
+                      {settings?.wecomSecretSet && (
+                        <button
+                          type="button"
+                          disabled={queryingWecomAccount}
+                          onClick={handleQueryWecomAccount}
+                          className="inline-flex items-center gap-1 text-xs font-medium text-primary-600 hover:underline disabled:opacity-50 dark:text-primary-400"
+                        >
+                          {queryingWecomAccount ? (
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                          ) : (
+                            <Search className="h-3 w-3" />
+                          )}
+                          查询应用发信邮箱
+                        </button>
+                      )}
+                    </div>
+                    <input
+                      type="email"
+                      value={fromAddress}
+                      onChange={e => setFromAddress(e.target.value)}
+                      placeholder="可选：用于线下面试 .ics 日历附件 ORGANIZER"
+                      className={inputClass}
+                    />
+                    {wecomAccount && (
+                      <p className="mt-1 text-xs text-emerald-600 dark:text-emerald-400">
+                        当前应用主发信邮箱：{wecomAccount.email || '未返回'}
+                        {wecomAccount.aliasList.length > 0 ? `（别名：${wecomAccount.aliasList.join('、')}）` : ''}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </>
+            ) : (
+              <div className="grid gap-4 md:grid-cols-2">
                 <div>
-                  <label className={labelClass}>端口</label>
+                  <label className={labelClass}>SMTP 服务器主机</label>
                   <input
-                    type="number"
-                    min={1}
-                    max={65535}
-                    value={port}
-                    onChange={e => setPort(e.target.value)}
+                    value={host}
+                    onChange={e => setHost(e.target.value)}
+                    placeholder="如：smtp.exmail.qq.com"
+                    className={inputClass}
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className={labelClass}>端口</label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={65535}
+                      value={port}
+                      onChange={e => setPort(e.target.value)}
+                      className={inputClass}
+                    />
+                  </div>
+                  <div>
+                    <label className={labelClass}>连接加密</label>
+                    <select
+                      value={security}
+                      onChange={e => setSecurity(e.target.value as MailSecurity)}
+                      className={inputClass}
+                    >
+                      {(Object.entries(MAIL_SECURITY_LABELS) as [MailSecurity, string][]).map(([val, label]) => (
+                        <option key={val} value={val}>
+                          {label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                <div>
+                  <label className={labelClass}>SMTP 登录账号</label>
+                  <input
+                    value={username}
+                    onChange={e => setUsername(e.target.value)}
+                    placeholder="如：hr@company.com"
                     className={inputClass}
                   />
                 </div>
                 <div>
-                  <label className={labelClass}>连接加密</label>
-                  <select
-                    value={security}
-                    onChange={e => setSecurity(e.target.value as MailSecurity)}
+                  <label className={labelClass}>
+                    SMTP 授权码 / 密码 {settings?.passwordSet ? '（已设置，留空保持不变）' : ''}
+                  </label>
+                  <input
+                    type="password"
+                    value={password}
+                    onChange={e => setPassword(e.target.value)}
+                    placeholder={settings?.passwordSet ? '••••••••（留空不修改）' : '请输入 SMTP 密码或授权码'}
                     className={inputClass}
-                  >
-                    {(Object.entries(MAIL_SECURITY_LABELS) as [MailSecurity, string][]).map(([val, label]) => (
-                      <option key={val} value={val}>
-                        {label}
-                      </option>
-                    ))}
-                  </select>
+                  />
+                </div>
+
+                <div>
+                  <label className={labelClass}>发件人邮箱</label>
+                  <input
+                    type="email"
+                    value={fromAddress}
+                    onChange={e => setFromAddress(e.target.value)}
+                    placeholder="如：hr@company.com"
+                    className={inputClass}
+                  />
+                </div>
+                <div>
+                  <label className={labelClass}>发件人显示名称</label>
+                  <input
+                    value={fromName}
+                    onChange={e => setFromName(e.target.value)}
+                    placeholder="如：XX 科技招聘团队"
+                    className={inputClass}
+                  />
                 </div>
               </div>
+            )}
 
-              <div>
-                <label className={labelClass}>SMTP 登录账号</label>
-                <input
-                  value={username}
-                  onChange={e => setUsername(e.target.value)}
-                  placeholder="如：hr@company.com"
-                  className={inputClass}
-                />
-              </div>
-              <div>
-                <label className={labelClass}>
-                  SMTP 授权码 / 密码 {settings?.passwordSet ? '（已设置，留空保持不变）' : ''}
-                </label>
-                <input
-                  type="password"
-                  value={password}
-                  onChange={e => setPassword(e.target.value)}
-                  placeholder={settings?.passwordSet ? '••••••••（留空不修改）' : '请输入 SMTP 密码或授权码'}
-                  className={inputClass}
-                />
-              </div>
-
-              <div>
-                <label className={labelClass}>发件人邮箱</label>
-                <input
-                  type="email"
-                  value={fromAddress}
-                  onChange={e => setFromAddress(e.target.value)}
-                  placeholder="如：hr@company.com"
-                  className={inputClass}
-                />
-              </div>
-              <div>
-                <label className={labelClass}>发件人显示名称</label>
-                <input
-                  value={fromName}
-                  onChange={e => setFromName(e.target.value)}
-                  placeholder="如：XX 科技招聘团队"
-                  className={inputClass}
-                />
-              </div>
-
+            <div className="grid gap-4 border-t border-slate-100 pt-4 dark:border-slate-800 md:grid-cols-2">
               <div>
                 <label className={labelClass}>公司名称（用于邮件模板与日历邀请）</label>
                 <input
@@ -415,14 +585,16 @@ export default function MailSettingsPage() {
                 className="btn-primary flex items-center gap-2 rounded-xl px-5 py-2 text-sm disabled:opacity-60"
               >
                 {savingSettings ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-                保存 SMTP 配置
+                {channel === 'WECOM_API' ? '保存企业微信配置' : '保存 SMTP 配置'}
               </button>
             </div>
           </form>
 
           <form onSubmit={handleSendTest} className="dark-card flex flex-wrap items-end gap-3 p-6">
             <div className="flex-1 min-w-[240px]">
-              <label className={labelClass}>发送测试邮件（需先保存并启用 SMTP）</label>
+              <label className={labelClass}>
+                发送测试邮件（需先保存并启用当前{channel === 'WECOM_API' ? '企业微信邮件 API' : ' SMTP'} 配置）
+              </label>
               <input
                 type="email"
                 required

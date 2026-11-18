@@ -14,7 +14,7 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 /**
- * 后台 SMTP 配置（单行表，id 固定为 1）
+ * 后台邮件发送配置（单行表，id 固定为 1，支持 SMTP 与企业微信邮件 API）
  */
 @Getter
 @Setter
@@ -30,6 +30,10 @@ public class MailSettingsEntity {
 
   @Column(nullable = false)
   private boolean enabled = false;
+
+  @Enumerated(EnumType.STRING)
+  @Column(nullable = false, length = 32)
+  private MailChannel channel = MailChannel.SMTP;
 
   private String host;
 
@@ -52,6 +56,18 @@ public class MailSettingsEntity {
 
   @Column(name = "from_name", length = 128)
   private String fromName;
+
+  @Column(name = "wecom_corp_id", length = 128)
+  private String wecomCorpId;
+
+  @Column(name = "wecom_secret_ciphertext", columnDefinition = "TEXT")
+  private String wecomSecretCiphertext;
+
+  @Column(name = "wecom_secret_nonce", length = 64)
+  private String wecomSecretNonce;
+
+  @Column(name = "wecom_api_base_url", length = 512)
+  private String wecomApiBaseUrl;
 
   /** 公司名称，用于邮件模板 {companyName} */
   @Column(name = "company_name", length = 128)
@@ -79,5 +95,9 @@ public class MailSettingsEntity {
 
   public boolean hasPassword() {
     return passwordCiphertext != null && !passwordCiphertext.isBlank();
+  }
+
+  public boolean hasWecomSecret() {
+    return wecomSecretCiphertext != null && !wecomSecretCiphertext.isBlank();
   }
 }

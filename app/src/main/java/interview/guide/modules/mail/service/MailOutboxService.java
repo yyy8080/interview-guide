@@ -7,6 +7,7 @@ import interview.guide.modules.mail.model.EmailLogDTO;
 import interview.guide.modules.mail.model.EmailLogEntity;
 import interview.guide.modules.mail.model.EmailLogStatus;
 import interview.guide.modules.mail.model.EmailTemplateCode;
+import interview.guide.modules.mail.model.MailChannel;
 import interview.guide.modules.mail.repository.EmailLogRepository;
 import interview.guide.modules.mail.service.EmailTemplateService.RenderedMail;
 import interview.guide.modules.mail.service.MailSettingsService.ResolvedMailConfig;
@@ -126,8 +127,9 @@ public class MailOutboxService {
   /** 发送测试邮件（同步，直接返回错误信息） */
   public void sendTest(String to) {
     ResolvedMailConfig config = settingsService.resolve();
-    deliveryService.deliver(config, to, "【" + config.companyName() + "】SMTP 测试邮件",
-        "这是一封测试邮件，收到说明招聘系统的 SMTP 配置正确。\n\n发送时间：" + LocalDateTime.now(), null);
+    String channelLabel = config.channel() == MailChannel.WECOM_API ? "企业微信邮件 API" : "SMTP";
+    deliveryService.deliver(config, to, "【" + config.companyName() + "】" + channelLabel + " 测试邮件",
+        "这是一封测试邮件，收到说明招聘系统的 " + channelLabel + " 发信配置正确。\n\n发送时间：" + LocalDateTime.now(), null);
   }
 
   /** 投递到期的待发送邮件（调度器调用） */

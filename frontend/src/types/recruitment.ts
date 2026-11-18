@@ -310,8 +310,14 @@ export interface ApplicationStats {
 
 // ========== 邮件配置与发件箱 ==========
 
+export type MailChannel = 'SMTP' | 'WECOM_API';
 export type MailSecurity = 'NONE' | 'SSL' | 'STARTTLS';
 export type EmailLogStatus = 'PENDING' | 'SENDING' | 'SENT' | 'FAILED';
+
+export const MAIL_CHANNEL_LABELS: Record<MailChannel, string> = {
+  SMTP: 'SMTP 发件服务器',
+  WECOM_API: '企业微信邮件 API',
+};
 
 export const MAIL_SECURITY_LABELS: Record<MailSecurity, string> = {
   SSL: 'SSL / TLS（通常 465 端口）',
@@ -328,6 +334,7 @@ export const EMAIL_LOG_STATUS_LABELS: Record<EmailLogStatus, string> = {
 
 export interface MailSettings {
   enabled: boolean;
+  channel: MailChannel;
   host: string | null;
   port: number | null;
   username: string | null;
@@ -335,6 +342,9 @@ export interface MailSettings {
   security: MailSecurity;
   fromAddress: string | null;
   fromName: string | null;
+  wecomCorpId: string | null;
+  wecomSecretSet: boolean;
+  wecomApiBaseUrl: string | null;
   companyName: string | null;
   portalBaseUrl: string | null;
   contactInfo: string | null;
@@ -343,16 +353,25 @@ export interface MailSettings {
 
 export interface MailSettingsRequest {
   enabled: boolean;
+  channel: MailChannel;
   host?: string | null;
   port?: number | null;
   username?: string | null;
   password?: string | null;
-  security: MailSecurity;
+  security?: MailSecurity;
   fromAddress?: string | null;
   fromName?: string | null;
+  wecomCorpId?: string | null;
+  wecomSecret?: string | null;
+  wecomApiBaseUrl?: string | null;
   companyName?: string | null;
   portalBaseUrl?: string | null;
   contactInfo?: string | null;
+}
+
+export interface WeComEmailAccount {
+  email: string;
+  aliasList: string[];
 }
 
 export interface EmailTemplateItem {

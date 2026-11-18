@@ -2,6 +2,8 @@ package interview.guide.modules.mail.service;
 
 import interview.guide.common.exception.BusinessException;
 import interview.guide.common.exception.ErrorCode;
+import interview.guide.modules.mail.model.MailChannel;
+import interview.guide.modules.mail.model.WeComEmailAccountDTO;
 import interview.guide.modules.mail.service.MailSettingsService.ResolvedMailConfig;
 import jakarta.mail.internet.MimeMessage;
 import java.io.UnsupportedEncodingException;
@@ -14,7 +16,7 @@ import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.stereotype.Component;
 
 /**
- * 底层邮件投递：按当前 SMTP 配置构建 MimeMessage 并发送（不涉及事务）
+ * 底层邮件投递：按当前通道（SMTP 或企业微信邮件 API）发送邮件（不涉及数据库事务）
  */
 @Slf4j
 @Component
@@ -22,6 +24,7 @@ import org.springframework.stereotype.Component;
 public class MailDeliveryService {
 
   private final MailSettingsService settingsService;
+  private final WeComMailClient weComMailClient;
 
   /**
    * 同步发送邮件
@@ -30,6 +33,15 @@ public class MailDeliveryService {
    * @throws BusinessException MAIL_NOT_CONFIGURED / MAIL_CONFIG_INVALID / MAIL_SEND_FAILED
    */
   public void deliver(ResolvedMailConfig config, String to, String subject, String body, String ics) {
+    if (!config.enabled()) {
+      throw new BusinessException(ErrorCode.MAIL_NOT_CONFIGURED);
+    }
+    MailChannel channel = config.channel() != null ? config.channel() : MailChannel.SMTP;
+    if (channel == MailChannel.WECOM_API) {
+      weComMailClient.sendMail(config, to, subject, body, ics);
+      return;
+    }
+
     JavaMailSenderImpl sender = settingsService.buildSender(config);
     try {
       MimeMessage message = sender.createMimeMessage();
@@ -55,6 +67,14 @@ public class MailDeliveryService {
       log.warn("邮件发送失败: to={}, error={}", maskEmail(to), e.getMessage());
       throw new BusinessException(ErrorCode.MAIL_SEND_FAILED, "邮件发送失败: " + summarize(e));
     }
+  }
+
+  /**
+   * 查询当前已保存的企业微信应用发信主邮箱与别名（外部 HTTP 在事务外执行）
+   */
+  public WeComEmailAccountDTO queryWeComAccount() {
+    ResolvedMailConfig config = settingsService.resolve();
+    return weComMailClient.queryAppEmailAccount(config);
   }
 
   static String summarize(Exception e) {

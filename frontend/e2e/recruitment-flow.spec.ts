@@ -380,19 +380,33 @@ test.describe('企业招聘全流程（候选人门户 + HR 后台审核与邮�
       await ok(route, buildDetail());
     });
 
+    let savedWecomCorpId: string | null = null;
+
     await page.route('**/api/admin/mail/settings', async route => {
       if (route.request().method() === 'PUT') {
-        const body = route.request().postDataJSON() as { host: string };
-        savedSmtpHost = body.host;
+        const body = route.request().postDataJSON() as {
+          channel: 'SMTP' | 'WECOM_API';
+          host: string | null;
+          wecomCorpId: string | null;
+        };
+        if (body.channel === 'WECOM_API') {
+          savedWecomCorpId = body.wecomCorpId;
+        } else {
+          savedSmtpHost = body.host;
+        }
         await ok(route, {
           enabled: true,
+          channel: body.channel,
           host: body.host,
           port: 465,
           username: 'hr@company.com',
           passwordSet: true,
           security: 'SSL',
-          fromAddress: 'hr@company.com',
+          fromAddress: body.channel === 'WECOM_API' ? null : 'hr@company.com',
           fromName: '星辰招聘团队',
+          wecomCorpId: body.wecomCorpId,
+          wecomSecretSet: body.channel === 'WECOM_API',
+          wecomApiBaseUrl: null,
           companyName: '星辰科技',
           portalBaseUrl: 'http://localhost:5173',
           contactInfo: 'hr@company.com',
@@ -402,6 +416,7 @@ test.describe('企业招聘全流程（候选人门户 + HR 后台审核与邮�
       }
       await ok(route, {
         enabled: false,
+        channel: 'SMTP',
         host: null,
         port: 465,
         username: null,
@@ -409,12 +424,22 @@ test.describe('企业招聘全流程（候选人门户 + HR 后台审核与邮�
         security: 'SSL',
         fromAddress: null,
         fromName: null,
+        wecomCorpId: null,
+        wecomSecretSet: false,
+        wecomApiBaseUrl: null,
         companyName: '星辰科技',
         portalBaseUrl: 'http://localhost:5173',
         contactInfo: null,
         updatedAt: null,
       });
     });
+
+    await page.route('**/api/admin/mail/wecom/account', route =>
+      ok(route, {
+        email: 'recruit-app@star.wecom.work',
+        aliasList: ['hr@star.com'],
+      }),
+    );
 
     await page.route('**/api/admin/mail/templates', route =>
       ok(route, [
@@ -450,7 +475,7 @@ test.describe('企业招聘全流程（候选人门户 + HR 后台审核与邮�
     await page.getByRole('button', { name: '保存并发送线下面试邀请' }).click();
     await expect(page.getByText('线下面试邀约已保存，邀请邮件与日历附件已加入发送队列')).toBeVisible();
 
-    // 4. 访问后台邮件设置页配置 SMTP
+    // 4. 访问后台邮件设置页配置 SMTP 并可切换至企业微信邮件 API
     await page.goto('/admin/mail');
     await expect(page.getByRole('heading', { name: '邮件设置' })).toBeVisible();
     await page.locator('input[type="checkbox"]').first().check();
@@ -461,5 +486,17 @@ test.describe('企业招聘全流程（候选人门户 + HR 后台审核与邮�
     await page.getByRole('button', { name: '保存 SMTP 配置' }).click();
     await expect(page.getByText('SMTP 邮件设置已保存')).toBeVisible();
     expect(savedSmtpHost).toBe('smtp.exmail.qq.com');
+
+    // 5. 切换为企业微信邮件 API 通道，保存 CorpID + Secret 并校验应用发信邮箱查询
+    await page.getByRole('button', { name: /企业微信邮件 API/ }).click();
+    await expect(page.getByText('企业微信邮件 API 接入指引')).toBeVisible();
+    await page.getByPlaceholder('如：ww1234567890abcdef').fill('ww9876543210');
+    await page.getByPlaceholder('请输入具备邮件权限的应用 Secret').fill('wecom-mail-secret');
+    await page.getByRole('button', { name: '保存企业微信配置' }).click();
+    await expect(page.getByText('企业微信邮件 API 配置已保存')).toBeVisible();
+    expect(savedWecomCorpId).toBe('ww9876543210');
+
+    await page.getByRole('button', { name: '查询应用发信邮箱' }).click();
+    await expect(page.getByText('当前应用主发信邮箱：recruit-app@star.wecom.work（别名：hr@star.com）')).toBeVisible();
   });
 });
