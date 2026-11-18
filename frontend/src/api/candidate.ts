@@ -6,7 +6,9 @@ import type {
   CandidateInterviewState,
   CandidateLoginResponse,
   CandidateProfile,
-  ProctorEventType,
+  CandidateWrittenTest,
+  AnswerTelemetry,
+  ProctorEventPayload,
 } from '../types/recruitment';
 
 export const candidateAuthApi = {
@@ -49,6 +51,35 @@ export const candidateApi = {
     return request.get(`/api/candidate/applications/${id}`);
   },
 
+  getWrittenTest(applicationId: number): Promise<CandidateWrittenTest> {
+    return request.get(`/api/candidate/applications/${applicationId}/written-test`);
+  },
+
+  startWrittenTest(applicationId: number): Promise<CandidateWrittenTest> {
+    return request.post(
+      `/api/candidate/applications/${applicationId}/written-test/start`,
+      {},
+      { timeout: 180000 },
+    );
+  },
+
+  saveWrittenAnswers(applicationId: number, answers: Record<number, string[]>): Promise<void> {
+    return request.put(`/api/candidate/applications/${applicationId}/written-test/answers`, {
+      answers,
+    });
+  },
+
+  submitWrittenTest(
+    applicationId: number,
+    answers: Record<number, string[]>,
+  ): Promise<CandidateWrittenTest> {
+    return request.post(
+      `/api/candidate/applications/${applicationId}/written-test/submit`,
+      { answers },
+      { timeout: 120000 },
+    );
+  },
+
   startInterview(applicationId: number, mode: ConcreteInterviewMode): Promise<CandidateInterviewState> {
     return request.post(
       `/api/candidate/applications/${applicationId}/interview/start`,
@@ -65,10 +96,12 @@ export const candidateApi = {
     applicationId: number,
     questionIndex: number,
     answer: string,
+    telemetry?: AnswerTelemetry,
   ): Promise<CandidateAnswerResponse> {
     return request.post(`/api/candidate/applications/${applicationId}/interview/answer`, {
       questionIndex,
       answer,
+      telemetry,
     });
   },
 
@@ -80,8 +113,8 @@ export const candidateApi = {
     return request.post(`/api/candidate/applications/${applicationId}/interview/voice/end`);
   },
 
-  recordProctor(applicationId: number, type: ProctorEventType, detail?: string): Promise<void> {
-    return request.post(`/api/candidate/applications/${applicationId}/proctor-events`, { type, detail });
+  recordProctor(applicationId: number, event: ProctorEventPayload): Promise<void> {
+    return request.post(`/api/candidate/applications/${applicationId}/proctor-events`, event);
   },
 
   confirmOffline(applicationId: number): Promise<CandidateApplication> {

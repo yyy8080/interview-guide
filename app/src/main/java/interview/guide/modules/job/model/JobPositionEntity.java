@@ -97,6 +97,38 @@ public class JobPositionEntity {
   @Column(name = "ai_pass_threshold", nullable = false)
   private Integer aiPassThreshold;
 
+  // ========== 防作弊配置（低打扰） ==========
+
+  /** 候选人长时间离开页面后回来时给出柔和提醒 */
+  @Column(name = "proctor_away_reminder", nullable = false)
+  private boolean proctorAwayReminder = true;
+
+  /** 在线面试页面显示极淡的候选人信息水印 */
+  @Column(name = "proctor_watermark", nullable = false)
+  private boolean proctorWatermark = true;
+
+  // ========== 在线笔试配置（选择题 / 填空题） ==========
+
+  /** 是否在 AI 面试前进行在线笔试 */
+  @Column(name = "written_test_enabled", nullable = false)
+  private boolean writtenTestEnabled = false;
+
+  @Column(name = "written_single_count", nullable = false)
+  private int writtenSingleCount = 5;
+
+  @Column(name = "written_multi_count", nullable = false)
+  private int writtenMultiCount = 3;
+
+  @Column(name = "written_fill_count", nullable = false)
+  private int writtenFillCount = 2;
+
+  @Column(name = "written_time_limit_minutes", nullable = false)
+  private int writtenTimeLimitMinutes = 15;
+
+  /** 笔试成绩在综合分中的权重（%） */
+  @Column(name = "written_weight", nullable = false)
+  private int writtenWeight = 30;
+
   // ========== 状态与审计 ==========
 
   @Enumerated(EnumType.STRING)

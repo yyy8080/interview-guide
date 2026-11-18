@@ -13,7 +13,11 @@ import interview.guide.modules.recruitment.model.ApplicationEntity;
 import interview.guide.modules.recruitment.model.ApplicationStatus;
 import interview.guide.modules.recruitment.model.ApplicationTaskType;
 import interview.guide.modules.recruitment.model.OperatorType;
+import interview.guide.modules.recruitment.model.ProctorRiskAssessment;
 import interview.guide.modules.recruitment.model.ScreeningResult;
+import interview.guide.modules.recruitment.model.WrittenTestEntity;
+import interview.guide.modules.recruitment.model.WrittenTestStatus;
+import interview.guide.modules.recruitment.model.WrittenTestSummary;
 import interview.guide.modules.recruitment.repository.ApplicationRepository;
 import interview.guide.modules.recruitment.repository.ProctorEventRepository;
 import interview.guide.modules.recruitment.service.InterviewResultReader.EvaluationSnapshot;
@@ -51,6 +55,8 @@ public class ApplicationWorkflowService {
   private final ApplicationStateMachine stateMachine;
   private final ResumeScreeningService screeningService;
   private final CandidateDecisionService decisionService;
+  private final CandidateWrittenTestService writtenTestService;
+  private final ProctorRiskService proctorRiskService;
   private final InterviewResultReader resultReader;
   private final ApplicationTaskProducer taskProducer;
   private final TransactionalExecutor transactionalExecutor;
@@ -144,6 +150,7 @@ public class ApplicationWorkflowService {
         return;
       }
       locked.setTaskUpdatedAt(LocalDateTime.now());
+      applyRiskQuietly(locked);
       stateMachine.transit(locked, ApplicationStatus.AI_REVIEWING, operatorType, operatorId, remark);
     });
   }
@@ -183,7 +190,7 @@ public class ApplicationWorkflowService {
       }
       locked.finishTask();
       locked.setAiDecision(null);
-      locked.setAiResultJson(toJson(new AiReviewRecord(null, null, null, null, true, remark, Map.of())));
+      locked.setAiResultJson(toJson(new AiReviewRecord(null, null, null, null, true, remark, Map.of(), null, null)));
       stateMachine.transit(locked, ApplicationStatus.AI_PASSED, OperatorType.SYSTEM, null, remark);
     });
   }
@@ -216,22 +223,39 @@ public class ApplicationWorkflowService {
     proctorEventRepository.countByType(applicationId)
         .forEach(c -> proctorCounts.put(c.getEventType().name(), c.getTotal()));
 
-    AiReviewRecord record = decisionService.decide(application, job, screening, snapshot, proctorCounts, skipLlm);
+    ProctorRiskAssessment risk = proctorRiskService.assess(applicationId);
+    WrittenTestSummary written = resolveWrittenSummary(applicationId, job, snapshot.score());
+
+    AiReviewRecord record = decisionService.decide(application, job, screening, snapshot, proctorCounts, risk,
+        written, skipLlm);
 
     transactionalExecutor.run(() -> {
       ApplicationEntity locked = lockOwned(applicationId, ApplicationStatus.AI_REVIEWING, attemptId);
       if (locked == null) {
         return;
       }
-      locked.setAiScore(record.interviewScore());
+      locked.setAiScore(record.effectiveScore());
+      if (record.written() != null) {
+        locked.setWrittenScore(record.written().writtenScore());
+      }
       locked.setAiDecision(record.finalDecision());
       locked.setAiResultJson(toJson(record));
+      locked.setProctorRiskScore(risk.score());
+      locked.setProctorRiskLevel(risk.level());
       locked.finishTask();
       if (record.finalDecision() == null) {
         stateMachine.transit(locked, ApplicationStatus.AI_PASSED, OperatorType.SYSTEM, null, record.note());
         return;
       }
-      String remark = "面试得分 " + record.interviewScore() + "（通过线 " + record.passThreshold() + "）"
+      String scoreDesc;
+      if (record.written() != null) {
+        WrittenTestSummary w = record.written();
+        scoreDesc = "综合分 " + w.finalScore() + "（笔试 " + w.writtenScore() + "×" + w.weight() + "% + 面试 "
+            + w.interviewScore() + "×" + (100 - w.weight()) + "%，通过线 " + record.passThreshold() + "）";
+      } else {
+        scoreDesc = "面试得分 " + record.interviewScore() + "（通过线 " + record.passThreshold() + "）";
+      }
+      String remark = scoreDesc
           + (record.llm() != null ? "，AI 建议 " + record.llm().decision() : "")
           + (record.note() != null ? "，" + record.note() : "");
       ApplicationStatus target = switch (record.finalDecision()) {
@@ -240,6 +264,30 @@ public class ApplicationWorkflowService {
       };
       stateMachine.transit(locked, target, OperatorType.AI, null, remark);
     });
+  }
+
+  private WrittenTestSummary resolveWrittenSummary(Long applicationId, JobPositionEntity job, Integer interviewScore) {
+    if (interviewScore == null) {
+      return null;
+    }
+    try {
+      Optional<WrittenTestEntity> found = writtenTestService.ensureGraded(applicationId, job.getLlmProvider());
+      if (found.isEmpty()) {
+        return null;
+      }
+      WrittenTestEntity test = found.get();
+      if (test.getStatus() != WrittenTestStatus.GRADED || test.getScore() == null) {
+        return null;
+      }
+      int weight = job.getWrittenWeight();
+      int finalScore = WrittenTestSummary.combine(test.getScore(), interviewScore, weight);
+      return new WrittenTestSummary(test.getScore(), weight, interviewScore, finalScore,
+          test.getCorrectCount() == null ? 0 : test.getCorrectCount(), test.getTotalCount());
+    } catch (Exception e) {
+      log.warn("读取或补判在线笔试成绩失败，按面试分继续决策: applicationId={}, error={}",
+          applicationId, e.getMessage());
+      return null;
+    }
   }
 
   /** 决策任务多次失败兜底：仅按分数线判定，异常时释放执行权等待恢复 */
@@ -266,6 +314,17 @@ public class ApplicationWorkflowService {
   }
 
   // ========== 工具方法 ==========
+
+  /** 交卷时计算作弊风险分（行为数据此后不再变化）；失败不影响流程推进 */
+  private void applyRiskQuietly(ApplicationEntity application) {
+    try {
+      ProctorRiskAssessment risk = proctorRiskService.assess(application.getId());
+      application.setProctorRiskScore(risk.score());
+      application.setProctorRiskLevel(risk.level());
+    } catch (Exception e) {
+      log.warn("计算作弊风险失败: applicationId={}, error={}", application.getId(), e.getMessage());
+    }
+  }
 
   /** 加锁读取并校验状态与执行代次；不匹配返回 null（结果作废） */
   private ApplicationEntity lockOwned(Long applicationId, ApplicationStatus expected, String attemptId) {

@@ -2,6 +2,7 @@ package interview.guide.modules.voiceinterview.handler;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import interview.guide.common.event.VoiceAnswerSubmittedEvent;
 import io.micrometer.core.instrument.MeterRegistry;
 import interview.guide.modules.voiceinterview.dto.WebSocketControlMessage;
 import interview.guide.modules.voiceinterview.dto.WebSocketSubtitleMessage;
@@ -18,6 +19,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.DisposableBean;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.web.socket.CloseStatus;
@@ -37,6 +39,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
+import java.net.URI;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -66,6 +69,7 @@ public class VoiceInterviewWebSocketHandler extends TextWebSocketHandler impleme
     private final interview.guide.modules.voiceinterview.context.VoiceHistoryLoader voiceHistoryLoader;
     private final VoiceInterviewProperties voiceInterviewProperties;
     private final ObjectProvider<MeterRegistry> meterRegistryProvider;
+    private final ApplicationEventPublisher eventPublisher;
 
     /**
      * 合并多段 STT 定稿后再触发 LLM 的延迟调度（与 {@link VoiceInterviewProperties#getUserUtteranceDebounceMs()} 配合）
@@ -87,6 +91,8 @@ public class VoiceInterviewWebSocketHandler extends TextWebSocketHandler impleme
     private static final long WARNING_TIME_MS = (long) (4.5 * 60 * 1000);  // 4:30
     private static final long PAUSE_TIMEOUT_MS = 5 * 60 * 1000;            // 5:00
     private static final int WS_SEND_TIME_LIMIT_MS = 10_000;
+    /** 招聘候选人语音面试 WebSocket 路径片段 */
+    private static final String CANDIDATE_WS_PATH_SEGMENT = "/ws/candidate/";
     private static final int WS_SEND_BUFFER_LIMIT_BYTES = 512 * 1024;
     /** AI 音频播放结束后的冷却期，防止扬声器尾音被麦克风拾取触发 STT */
     private static final long AI_SPEAK_COOLDOWN_MS = 800;
@@ -564,7 +570,9 @@ public class VoiceInterviewWebSocketHandler extends TextWebSocketHandler impleme
 
         if (!isFinalSegment) {
             state.markSttActivity();
-            sendSubtitle(session, state.getMergeBufferPreviewWithPartial(recognizedText), false);
+            String preview = state.getMergeBufferPreviewWithPartial(recognizedText);
+            state.markHeard(preview);
+            sendSubtitle(session, preview, false);
             return;
         }
 
@@ -573,6 +581,7 @@ public class VoiceInterviewWebSocketHandler extends TextWebSocketHandler impleme
 
         // 合并多次 VAD 切段，只更新实时字幕；是否提交给 LLM 由前端手动 submit 控制
         state.appendFinalSttSegment(recognizedText);
+        state.markHeard(state.getMergeBufferPreview());
         sendSubtitle(session, state.getMergeBufferPreview(), false);
     }
 
@@ -879,16 +888,7 @@ public class VoiceInterviewWebSocketHandler extends TextWebSocketHandler impleme
 
         switch (control.getAction()) {
             case "submit":
-                if (control.getData() != null) {
-                    Object textObj = control.getData().get("text");
-                    if (textObj instanceof String text && !text.isBlank()) {
-                        SessionState state = sessionStates.get(sessionId);
-                        if (state != null) {
-                            state.setMergeBufferDirectly(text);
-                        }
-                    }
-                }
-                flushMergedUtteranceToLlm(sessionId);
+                handleSubmit(sessionId, control);
                 break;
             case "end_interview":
                 interviewService.endSession(sessionId);
@@ -896,6 +896,53 @@ public class VoiceInterviewWebSocketHandler extends TextWebSocketHandler impleme
             case "start_phase":
                 interviewService.startPhase(sessionId, control.getPhase());
                 break;
+        }
+    }
+
+    /**
+     * 手动提交本轮回答。招聘候选人会话要求本轮确实识别到语音，禁止不开口直接提交文字；
+     * 提交文本相对识别结果的改写情况通过事件交给招聘模块做行为记录。
+     */
+    private void handleSubmit(String sessionId, WebSocketControlMessage control) {
+        String submitted = null;
+        if (control.getData() != null && control.getData().get("text") instanceof String text && !text.isBlank()) {
+            submitted = text.trim();
+        }
+        SessionState state = sessionStates.get(sessionId);
+        WebSocketSession session = sessions.get(sessionId);
+        if (state != null && isCandidateSession(session)) {
+            String heard = state.getLastHeardText();
+            if (heard.isBlank()) {
+                sendError(session, "请先点击麦克风进行语音作答，识别出内容后再提交");
+                return;
+            }
+            if (submitted != null && !submitted.equals(heard)) {
+                publishVoiceAnswerQuietly(sessionId, heard, submitted);
+            }
+        }
+        if (state != null && submitted != null) {
+            state.setMergeBufferDirectly(submitted);
+        }
+        flushMergedUtteranceToLlm(sessionId);
+    }
+
+    static boolean isCandidateSession(WebSocketSession session) {
+        if (session == null) {
+            return false;
+        }
+        try {
+            URI uri = session.getUri();
+            return uri != null && uri.getPath() != null && uri.getPath().contains(CANDIDATE_WS_PATH_SEGMENT);
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private void publishVoiceAnswerQuietly(String sessionId, String recognized, String submitted) {
+        try {
+            eventPublisher.publishEvent(new VoiceAnswerSubmittedEvent(sessionId, recognized, submitted));
+        } catch (Exception e) {
+            log.warn("Publish voice answer event failed for session {}: {}", sessionId, e.getMessage());
         }
     }
 
@@ -1345,6 +1392,8 @@ public class VoiceInterviewWebSocketHandler extends TextWebSocketHandler impleme
         private final AtomicReference<String> mergeBuffer = new AtomicReference<>("");
         /** mergeBuffer 开始计时点，用于”最长等待补充”判定 */
         private final AtomicLong mergeStartedAt = new AtomicLong(0);
+        /** 本轮最近识别到的语音文本，提交后清空；用于校验候选人确实开口作答 */
+        private final AtomicReference<String> lastHeardText = new AtomicReference<>("");
         /** 最近一次 STT 活动时间（partial/final） */
         private final AtomicLong lastSttActivityAt = new AtomicLong(System.currentTimeMillis());
         /** 当前正在执行 LLM+TTS 管线的虚拟线程，断连时可中断 */
@@ -1413,7 +1462,20 @@ public class VoiceInterviewWebSocketHandler extends TextWebSocketHandler impleme
 
         String takeMergeBufferAndClear() {
             mergeStartedAt.set(0);
+            lastHeardText.set("");
             return mergeBuffer.getAndSet("");
+        }
+
+        /** 记录本轮最近一次识别到的用户语音文本（partial 或 final） */
+        void markHeard(String text) {
+            if (text != null && !text.isBlank()) {
+                lastHeardText.set(text.trim());
+            }
+        }
+
+        String getLastHeardText() {
+            String s = lastHeardText.get();
+            return s == null ? "" : s;
         }
 
         void markSttActivity() {

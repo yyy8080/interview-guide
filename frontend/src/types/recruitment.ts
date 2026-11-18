@@ -81,6 +81,42 @@ export interface CandidateQuestion {
   followUp: boolean;
 }
 
+export type WrittenQuestionType = 'SINGLE_CHOICE' | 'MULTIPLE_CHOICE' | 'FILL_BLANK';
+export type WrittenTestStatus = 'IN_PROGRESS' | 'SUBMITTED' | 'GRADED';
+
+export const WRITTEN_QUESTION_TYPE_LABELS: Record<WrittenQuestionType, string> = {
+  SINGLE_CHOICE: '单选题',
+  MULTIPLE_CHOICE: '多选题',
+  FILL_BLANK: '填空题',
+};
+
+export const WRITTEN_TEST_STATUS_LABELS: Record<WrittenTestStatus, string> = {
+  IN_PROGRESS: '作答中',
+  SUBMITTED: '已交卷待判分',
+  GRADED: '已判分',
+};
+
+export interface CandidateWrittenQuestion {
+  index: number;
+  type: WrittenQuestionType;
+  question: string;
+  options: string[];
+  category: string | null;
+}
+
+export interface CandidateWrittenTest {
+  applicationId: number;
+  status: WrittenTestStatus | null;
+  totalQuestions: number;
+  questions: CandidateWrittenQuestion[];
+  answers: Record<string, string[]>;
+  startedAt: string | null;
+  deadlineAt: string | null;
+  remainingSeconds: number | null;
+  watermarkText: string | null;
+  proctorAwayReminder: boolean;
+}
+
 export interface CandidateInterviewState {
   applicationId: number;
   jobTitle: string;
@@ -96,6 +132,25 @@ export interface CandidateInterviewState {
   voiceSessionId: number | null;
   voiceWsPath: string | null;
   plannedDurationMinutes: number | null;
+  /** 长时间离开页面回来后是否给出柔和提醒 */
+  proctorAwayReminder?: boolean;
+  /** 页面水印文字，岗位关闭水印时为空 */
+  watermarkText?: string | null;
+  /** 是否需要或存在在线笔试 */
+  writtenTestEnabled?: boolean;
+  writtenTestStatus?: WrittenTestStatus | null;
+  writtenQuestionCount?: number;
+  writtenTimeLimitMinutes?: number;
+}
+
+/** 文字面试单题作答遥测（无感采集） */
+export interface AnswerTelemetry {
+  durationMs: number;
+  firstInputMs: number | null;
+  typedChars: number;
+  pastedChars: number;
+  maxBurstChars: number;
+  awayMs: number;
 }
 
 export interface CandidateAnswerResponse {
@@ -105,7 +160,16 @@ export interface CandidateAnswerResponse {
   totalQuestions: number;
 }
 
-export type ProctorEventType = 'TAB_HIDDEN' | 'WINDOW_BLUR' | 'PASTE' | 'COPY' | 'FULLSCREEN_EXIT';
+export type ProctorEventType =
+  | 'TAB_HIDDEN'
+  | 'WINDOW_BLUR'
+  | 'PASTE'
+  | 'COPY'
+  | 'FULLSCREEN_EXIT'
+  | 'VIEWPORT_SHRINK'
+  | 'MULTI_SCREEN'
+  | 'VOICE_TEXT_EDITED'
+  | 'VOICE_SLOW_RESPONSE';
 
 export const PROCTOR_EVENT_LABELS: Record<ProctorEventType, string> = {
   TAB_HIDDEN: '切换标签页',
@@ -113,7 +177,53 @@ export const PROCTOR_EVENT_LABELS: Record<ProctorEventType, string> = {
   PASTE: '粘贴内容',
   COPY: '复制题目',
   FULLSCREEN_EXIT: '退出全屏',
+  VIEWPORT_SHRINK: '窗口明显缩小',
+  MULTI_SCREEN: '扩展显示器',
+  VOICE_TEXT_EDITED: '语音回答大幅改写',
+  VOICE_SLOW_RESPONSE: '语音长时间未应答',
 };
+
+export interface ProctorEventPayload {
+  type: ProctorEventType;
+  detail?: string;
+  durationMs?: number;
+  questionIndex?: number;
+  chars?: number;
+}
+
+export type ProctorRiskLevel = 'LOW' | 'MEDIUM' | 'HIGH';
+
+export const PROCTOR_RISK_LABELS: Record<ProctorRiskLevel, string> = {
+  LOW: '行为正常',
+  MEDIUM: '中风险',
+  HIGH: '高风险',
+};
+
+export const PROCTOR_RISK_BADGES: Record<ProctorRiskLevel, string> = {
+  LOW: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300',
+  MEDIUM: 'bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300',
+  HIGH: 'bg-rose-50 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300',
+};
+
+export interface ProctorRiskAssessment {
+  score: number;
+  level: ProctorRiskLevel;
+  findings: string[];
+  flaggedQuestions: number[];
+}
+
+export interface AnswerTelemetryItem {
+  questionIndex: number;
+  durationMs: number | null;
+  firstInputMs: number | null;
+  typedChars: number | null;
+  pastedChars: number | null;
+  maxBurstChars: number | null;
+  awayMs: number | null;
+  answerChars: number | null;
+  pasteRatio: number | null;
+  flagged: boolean;
+}
 
 // ========== 后台投递管理 ==========
 
@@ -177,8 +287,11 @@ export interface ApplicationListItem {
   status: ApplicationStatus;
   interviewMode: InterviewMode | null;
   screeningScore: number | null;
+  writtenScore?: number | null;
   aiScore: number | null;
   aiDecision: AiDecision | null;
+  proctorRiskScore?: number | null;
+  proctorRiskLevel?: ProctorRiskLevel | null;
   submittedAt: string;
   updatedAt: string;
 }
@@ -201,6 +314,42 @@ export interface DecisionResult {
   suggestedQuestions: string[];
 }
 
+export interface WrittenTestSummary {
+  writtenScore: number;
+  weight: number;
+  interviewScore: number;
+  finalScore: number;
+  correctCount: number;
+  totalCount: number;
+}
+
+export interface WrittenTestItem {
+  index: number;
+  type: WrittenQuestionType;
+  question: string;
+  options: string[];
+  correctAnswers: string[];
+  explanation: string | null;
+  category: string | null;
+  candidateAnswer: string[];
+  correct: boolean | null;
+  judgedBy: string | null;
+  reason: string | null;
+}
+
+export interface WrittenTestDetail {
+  status: WrittenTestStatus;
+  score: number | null;
+  correctCount: number | null;
+  totalCount: number;
+  weight: number;
+  startedAt: string;
+  deadlineAt: string;
+  submittedAt: string | null;
+  gradedAt: string | null;
+  items: WrittenTestItem[];
+}
+
 export interface AiReviewRecord {
   finalDecision: AiDecision | null;
   interviewScore: number | null;
@@ -209,12 +358,17 @@ export interface AiReviewRecord {
   fallback: boolean;
   note: string | null;
   proctorCounts: Record<string, number>;
+  proctorRisk?: ProctorRiskAssessment | null;
+  written?: WrittenTestSummary | null;
 }
 
 export interface ProctorEventItem {
   id: number;
   type: ProctorEventType;
   detail: string | null;
+  durationMs?: number | null;
+  questionIndex?: number | null;
+  chars?: number | null;
   occurredAt: string;
 }
 
@@ -268,6 +422,7 @@ export interface ApplicationDetail {
   resumeText: string | null;
   screeningScore: number | null;
   screeningResult: ScreeningResult | null;
+  writtenTest?: WrittenTestDetail | null;
   interviewMode: ConcreteInterviewMode | null;
   interviewSessionId: string | null;
   voiceSessionId: number | null;
@@ -283,6 +438,8 @@ export interface ApplicationDetail {
   hrReviewedAt: string | null;
   proctorCounts: Partial<Record<ProctorEventType, number>>;
   proctorEvents: ProctorEventItem[];
+  proctorRisk?: ProctorRiskAssessment | null;
+  answerTelemetry?: AnswerTelemetryItem[];
   logs: ApplicationStatusLog[];
   offlineInterview: OfflineInterviewDetail | null;
   emails: EmailLogItem[];

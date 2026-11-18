@@ -20,8 +20,11 @@ import { INTERVIEW_MODE_LABELS, type JobPosition } from '../../types/job';
 import {
   APPLICATION_STATUS_BADGES,
   APPLICATION_STATUS_LABELS,
+  PROCTOR_RISK_BADGES,
+  PROCTOR_RISK_LABELS,
   type ApplicationListItem,
   type ApplicationStatus,
+  type ProctorRiskLevel,
 } from '../../types/recruitment';
 
 type StatusGroupKey = 'ALL' | 'PENDING_HR' | 'IN_PROGRESS' | 'PASSED' | 'REJECTED' | 'EXPIRED';
@@ -47,6 +50,14 @@ const STATUS_GROUPS: { key: StatusGroupKey; label: string; statuses?: Applicatio
   { key: 'EXPIRED', label: '已过期', statuses: ['EXPIRED'] },
 ];
 
+type RiskFilterKey = 'ALL' | 'ATTENTION' | 'HIGH';
+
+const RISK_FILTERS: { key: RiskFilterKey; label: string; levels?: ProctorRiskLevel[] }[] = [
+  { key: 'ALL', label: '全部作答行为' },
+  { key: 'ATTENTION', label: '需关注（中 / 高风险）', levels: ['MEDIUM', 'HIGH'] },
+  { key: 'HIGH', label: '仅高风险', levels: ['HIGH'] },
+];
+
 const PAGE_SIZE = 20;
 
 export default function ApplicationListPage() {
@@ -58,6 +69,7 @@ export default function ApplicationListPage() {
   const [jobs, setJobs] = useState<JobPosition[]>([]);
   const [jobId, setJobId] = useState<string>(initialJobId ?? '');
   const [groupKey, setGroupKey] = useState<StatusGroupKey>('ALL');
+  const [riskFilter, setRiskFilter] = useState<RiskFilterKey>('ALL');
   const [keyword, setKeyword] = useState('');
   const [appliedKeyword, setAppliedKeyword] = useState('');
   const [page, setPage] = useState(1);
@@ -81,6 +93,11 @@ export default function ApplicationListPage() {
     [groupKey],
   );
 
+  const currentRiskLevels = useMemo(
+    () => RISK_FILTERS.find(f => f.key === riskFilter)?.levels,
+    [riskFilter],
+  );
+
   const loadData = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -89,6 +106,7 @@ export default function ApplicationListPage() {
       const res = await applicationApi.list({
         jobId: parsedJobId && !Number.isNaN(parsedJobId) ? parsedJobId : undefined,
         statuses: currentStatuses,
+        riskLevels: currentRiskLevels,
         keyword: appliedKeyword || undefined,
         page,
         size: PAGE_SIZE,
@@ -101,7 +119,7 @@ export default function ApplicationListPage() {
     } finally {
       setLoading(false);
     }
-  }, [jobId, currentStatuses, appliedKeyword, page]);
+  }, [jobId, currentStatuses, currentRiskLevels, appliedKeyword, page]);
 
   useEffect(() => {
     loadData();
@@ -230,6 +248,22 @@ export default function ApplicationListPage() {
             ))}
           </select>
 
+          <select
+            value={riskFilter}
+            onChange={e => {
+              setRiskFilter(e.target.value as RiskFilterKey);
+              setPage(1);
+            }}
+            data-testid="risk-filter"
+            className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+          >
+            {RISK_FILTERS.map(f => (
+              <option key={f.key} value={f.key}>
+                {f.label}
+              </option>
+            ))}
+          </select>
+
           <form
             onSubmit={e => {
               e.preventDefault();
@@ -320,6 +354,7 @@ export default function ApplicationListPage() {
                   <th className="px-4 py-3">当前状态</th>
                   <th className="px-4 py-3">简历初筛</th>
                   <th className="px-4 py-3">AI 面试评分</th>
+                  <th className="px-4 py-3">作答行为</th>
                   <th className="px-4 py-3">投递时间</th>
                   <th className="px-4 py-3 text-right">操作</th>
                 </tr>
@@ -370,6 +405,22 @@ export default function ApplicationListPage() {
                           <span className="font-semibold">{item.aiScore} 分</span>
                         ) : (
                           '—'
+                        )}
+                        {item.writtenScore != null && (
+                          <div className="text-xs text-slate-400">笔试 {item.writtenScore} 分</div>
+                        )}
+                      </td>
+                      <td className="px-4 py-3">
+                        {item.proctorRiskLevel ? (
+                          <span
+                            data-testid={`risk-cell-${item.id}`}
+                            className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ${PROCTOR_RISK_BADGES[item.proctorRiskLevel]}`}
+                          >
+                            {PROCTOR_RISK_LABELS[item.proctorRiskLevel]}
+                            {item.proctorRiskScore != null ? ` · ${item.proctorRiskScore}` : ''}
+                          </span>
+                        ) : (
+                          <span className="text-slate-400">—</span>
                         )}
                       </td>
                       <td className="px-4 py-3 text-xs text-slate-500 dark:text-slate-400">

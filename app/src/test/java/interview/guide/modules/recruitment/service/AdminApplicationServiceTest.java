@@ -29,6 +29,7 @@ import interview.guide.modules.recruitment.model.BatchReviewRequest;
 import interview.guide.modules.recruitment.model.BatchReviewResult;
 import interview.guide.modules.recruitment.model.OfflineInterviewRequest;
 import interview.guide.modules.recruitment.model.OperatorType;
+import interview.guide.modules.recruitment.repository.AnswerTelemetryRepository;
 import interview.guide.modules.recruitment.repository.ApplicationRepository;
 import interview.guide.modules.recruitment.repository.ApplicationStatusLogRepository;
 import interview.guide.modules.recruitment.repository.CandidateRepository;
@@ -68,6 +69,12 @@ class AdminApplicationServiceTest {
   private ProctorEventRepository proctorEventRepository;
 
   @Mock
+  private AnswerTelemetryRepository answerTelemetryRepository;
+
+  @Mock
+  private interview.guide.modules.recruitment.repository.WrittenTestRepository writtenTestRepository;
+
+  @Mock
   private ApplicationStatusLogRepository statusLogRepository;
 
   @Mock
@@ -95,11 +102,14 @@ class AdminApplicationServiceTest {
 
   @BeforeEach
   void setUp() {
+    ObjectMapper mapper = new ObjectMapper();
     service = new AdminApplicationService(
         applicationRepository, candidateRepository, jobPositionRepository, resumeRepository,
-        proctorEventRepository, statusLogRepository, scheduleRepository, adminUserRepository,
+        proctorEventRepository, answerTelemetryRepository, writtenTestRepository, new WrittenTestCodec(mapper),
+        new ProctorRiskService(proctorEventRepository, answerTelemetryRepository, new ProctorRiskCalculator()),
+        statusLogRepository, scheduleRepository, adminUserRepository,
         stateMachine, mailOutboxService, mailSettingsService, fileStorageService,
-        transactionalExecutor, new ObjectMapper());
+        transactionalExecutor, mapper);
   }
 
   @Test

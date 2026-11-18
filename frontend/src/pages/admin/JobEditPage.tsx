@@ -51,6 +51,14 @@ interface FormState {
   screeningEnabled: boolean;
   screeningThreshold: string;
   aiPassThreshold: number;
+  proctorAwayReminder: boolean;
+  proctorWatermark: boolean;
+  writtenTestEnabled: boolean;
+  writtenSingleCount: number;
+  writtenMultiCount: number;
+  writtenFillCount: number;
+  writtenTimeLimitMinutes: number;
+  writtenWeight: number;
   deadline: string;
 }
 
@@ -73,6 +81,14 @@ const EMPTY_FORM: FormState = {
   screeningEnabled: true,
   screeningThreshold: '60',
   aiPassThreshold: 70,
+  proctorAwayReminder: true,
+  proctorWatermark: true,
+  writtenTestEnabled: false,
+  writtenSingleCount: 5,
+  writtenMultiCount: 3,
+  writtenFillCount: 2,
+  writtenTimeLimitMinutes: 15,
+  writtenWeight: 30,
   deadline: '',
 };
 
@@ -114,6 +130,14 @@ function fromJob(job: JobPosition): FormState {
     screeningEnabled: job.screeningEnabled,
     screeningThreshold: job.screeningThreshold != null ? String(job.screeningThreshold) : '60',
     aiPassThreshold: job.aiPassThreshold,
+    proctorAwayReminder: job.proctorAwayReminder ?? true,
+    proctorWatermark: job.proctorWatermark ?? true,
+    writtenTestEnabled: job.writtenTestEnabled ?? false,
+    writtenSingleCount: job.writtenSingleCount ?? 5,
+    writtenMultiCount: job.writtenMultiCount ?? 3,
+    writtenFillCount: job.writtenFillCount ?? 2,
+    writtenTimeLimitMinutes: job.writtenTimeLimitMinutes ?? 15,
+    writtenWeight: job.writtenWeight ?? 30,
     deadline: toInputDateTime(job.deadline),
   };
 }
@@ -138,6 +162,14 @@ function toRequest(form: FormState): JobPositionRequest {
     screeningEnabled: form.screeningEnabled,
     screeningThreshold: form.screeningEnabled ? toOptionalNumber(form.screeningThreshold) : null,
     aiPassThreshold: form.aiPassThreshold,
+    proctorAwayReminder: form.proctorAwayReminder,
+    proctorWatermark: form.proctorWatermark,
+    writtenTestEnabled: form.writtenTestEnabled,
+    writtenSingleCount: form.writtenSingleCount,
+    writtenMultiCount: form.writtenMultiCount,
+    writtenFillCount: form.writtenFillCount,
+    writtenTimeLimitMinutes: form.writtenTimeLimitMinutes,
+    writtenWeight: form.writtenWeight,
     deadline: toApiDateTime(form.deadline),
   };
 }
@@ -232,6 +264,12 @@ export default function JobEditPage() {
     if (!form.jdText.trim()) return '请填写职位描述（JD）';
     if (form.screeningEnabled && toOptionalNumber(form.screeningThreshold) === null) {
       return '启用简历初筛时需要填写初筛分数线';
+    }
+    if (form.writtenTestEnabled) {
+      const totalWritten = form.writtenSingleCount + form.writtenMultiCount + form.writtenFillCount;
+      if (totalWritten < 1 || totalWritten > 30) {
+        return '启用在线笔试时，单选 + 多选 + 填空总题数需在 1 ~ 30 题之间';
+      }
     }
     if (publish && form.skillId === CUSTOM_SKILL_ID && form.categories.length === 0) {
       return '按 JD 出题的岗位发布前需要先解析 JD 生成考察维度';
@@ -377,6 +415,96 @@ export default function JobEditPage() {
         </div>
       </section>
 
+      {/* 在线笔试配置 */}
+      <section className="dark-card space-y-4 p-6">
+        <div>
+          <h2 className="text-base font-semibold text-slate-900 dark:text-white">在线笔试（选择题 / 填空题）</h2>
+          <p className={hintClass}>
+            独立环节置于 AI 面试之前（网页作答），AI 按岗位 JD 为每位候选人实时出题并打乱选项；客观题自动判分，填空题规则匹配 + AI 语义判分。
+          </p>
+        </div>
+        <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
+          <input
+            type="checkbox"
+            checked={form.writtenTestEnabled}
+            onChange={e => update('writtenTestEnabled', e.target.checked)}
+            className="h-4 w-4 accent-primary-500"
+            data-testid="written-enabled-toggle"
+          />
+          启用在线笔试（文字面试与语音面试均适用）
+        </label>
+        {form.writtenTestEnabled && (
+          <div className="grid gap-4 md:grid-cols-3">
+            <div>
+              <label className={labelClass}>单选题数量（0-20）</label>
+              <input
+                className={inputClass}
+                type="number"
+                min={0}
+                max={20}
+                value={form.writtenSingleCount}
+                onChange={e => update('writtenSingleCount', Math.max(0, Math.min(20, Number(e.target.value) || 0)))}
+                data-testid="written-single-count"
+              />
+            </div>
+            <div>
+              <label className={labelClass}>多选题数量（0-20）</label>
+              <input
+                className={inputClass}
+                type="number"
+                min={0}
+                max={20}
+                value={form.writtenMultiCount}
+                onChange={e => update('writtenMultiCount', Math.max(0, Math.min(20, Number(e.target.value) || 0)))}
+                data-testid="written-multi-count"
+              />
+            </div>
+            <div>
+              <label className={labelClass}>填空题数量（0-20）</label>
+              <input
+                className={inputClass}
+                type="number"
+                min={0}
+                max={20}
+                value={form.writtenFillCount}
+                onChange={e => update('writtenFillCount', Math.max(0, Math.min(20, Number(e.target.value) || 0)))}
+                data-testid="written-fill-count"
+              />
+            </div>
+            <div>
+              <label className={labelClass}>笔试限时（分钟，5-120）</label>
+              <input
+                className={inputClass}
+                type="number"
+                min={5}
+                max={120}
+                value={form.writtenTimeLimitMinutes}
+                onChange={e => update('writtenTimeLimitMinutes', Math.max(5, Math.min(120, Number(e.target.value) || 15)))}
+                data-testid="written-time-limit"
+              />
+            </div>
+            <div className="md:col-span-2">
+              <label className={labelClass}>
+                综合分权重：笔试 {form.writtenWeight}% + AI 面试 {100 - form.writtenWeight}%
+              </label>
+              <input
+                type="range"
+                min={0}
+                max={100}
+                step={5}
+                value={form.writtenWeight}
+                onChange={e => update('writtenWeight', Number(e.target.value))}
+                className="w-full accent-primary-500"
+                data-testid="written-weight"
+              />
+              <p className={hintClass}>
+                共 {form.writtenSingleCount + form.writtenMultiCount + form.writtenFillCount} 题（上限 30 题）；最终得分 = 笔试分 × {form.writtenWeight}% + 面试分 × {100 - form.writtenWeight}%
+              </p>
+            </div>
+          </div>
+        )}
+      </section>
+
       {/* 在线面试配置 */}
       <section className="dark-card space-y-4 p-6">
         <h2 className="text-base font-semibold text-slate-900 dark:text-white">在线 AI 面试</h2>
@@ -479,6 +607,48 @@ export default function JobEditPage() {
             />
             <p className={hintClass}>通过 AI 审核的候选人进入 HR 待审核；AI 判定不通过将直接结束流程并发送通知邮件</p>
           </div>
+        </div>
+      </section>
+
+      {/* 防作弊（低打扰） */}
+      <section className="dark-card space-y-4 p-6">
+        <div>
+          <h2 className="text-base font-semibold text-slate-900 dark:text-white">防作弊（低打扰）</h2>
+          <p className={hintClass}>
+            系统始终在后台无感记录切屏时长、粘贴、作答节奏等行为并给出风险评分，仅供 HR 参考，不会自动淘汰；不开启摄像头、不强制全屏。
+          </p>
+        </div>
+        <div className="space-y-3">
+          <label className="flex items-start gap-2 text-sm text-slate-700 dark:text-slate-300">
+            <input
+              type="checkbox"
+              checked={form.proctorAwayReminder}
+              onChange={e => update('proctorAwayReminder', e.target.checked)}
+              className="mt-0.5 h-4 w-4 accent-primary-500"
+              data-testid="proctor-away-reminder"
+            />
+            <span>
+              离开页面提醒
+              <span className="block text-xs text-slate-400">
+                候选人离开页面超过 30 秒再返回时，显示一条可自动消失的轻提示（每场最多 2 次）
+              </span>
+            </span>
+          </label>
+          <label className="flex items-start gap-2 text-sm text-slate-700 dark:text-slate-300">
+            <input
+              type="checkbox"
+              checked={form.proctorWatermark}
+              onChange={e => update('proctorWatermark', e.target.checked)}
+              className="mt-0.5 h-4 w-4 accent-primary-500"
+              data-testid="proctor-watermark-toggle"
+            />
+            <span>
+              页面淡水印
+              <span className="block text-xs text-slate-400">
+                在面试页面叠加极淡的“姓名 · 投递编号”水印，降低截图外传题目的风险，不影响作答
+              </span>
+            </span>
+          </label>
         </div>
       </section>
 

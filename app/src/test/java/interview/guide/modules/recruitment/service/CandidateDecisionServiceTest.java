@@ -80,12 +80,12 @@ class CandidateDecisionServiceTest {
         .thenThrow(new BusinessException(ErrorCode.DECISION_FAILED, "超时"));
 
     AiReviewRecord passFallback = service.decide(
-        app, job, null, new EvaluationSnapshot(EvaluationState.COMPLETED, 75, "回答清晰"), Map.of(), false);
+        app, job, null, new EvaluationSnapshot(EvaluationState.COMPLETED, 75, "回答清晰"), Map.of(), null, false);
     assertThat(passFallback.finalDecision()).isEqualTo(AiDecision.PASS);
     assertThat(passFallback.fallback()).isTrue();
 
     AiReviewRecord rejectFallback = service.decide(
-        app, job, null, new EvaluationSnapshot(EvaluationState.COMPLETED, 58, "基础薄弱"), Map.of(), false);
+        app, job, null, new EvaluationSnapshot(EvaluationState.COMPLETED, 58, "基础薄弱"), Map.of(), null, false);
     assertThat(rejectFallback.finalDecision()).isEqualTo(AiDecision.REJECT);
     assertThat(rejectFallback.fallback()).isTrue();
   }
@@ -99,10 +99,33 @@ class CandidateDecisionServiceTest {
     job.setAiPassThreshold(65);
 
     AiReviewRecord record = service.decide(
-        app, job, null, new EvaluationSnapshot(EvaluationState.FAILED, null, null), Map.of("PASTE", 3L), true);
+        app, job, null, new EvaluationSnapshot(EvaluationState.FAILED, null, null), Map.of("PASTE", 3L), null, true);
 
     assertThat(record.finalDecision()).isNull();
     assertThat(record.fallback()).isTrue();
     assertThat(record.proctorCounts()).containsEntry("PASTE", 3L);
+  }
+
+  @Test
+  @DisplayName("存在在线笔试成绩时按岗位权重计算综合分并参与通过线判定")
+  void usesWeightedWrittenScoreForThresholdDecision() {
+    ApplicationEntity app = new ApplicationEntity();
+    app.setId(44L);
+    JobPositionEntity job = new JobPositionEntity();
+    job.setTitle("Java 工程师");
+    job.setAiPassThreshold(70);
+
+    int finalScore = interview.guide.modules.recruitment.model.WrittenTestSummary.combine(90, 62, 30);
+    assertThat(finalScore).isEqualTo(70); // 90*0.3 + 62*0.7 = 70.4 -> 70
+
+    var summary = new interview.guide.modules.recruitment.model.WrittenTestSummary(90, 30, 62, finalScore, 9, 10);
+    AiReviewRecord record = service.decide(
+        app, job, null, new EvaluationSnapshot(EvaluationState.COMPLETED, 62, "实战略弱但基础扎实"),
+        Map.of(), null, summary, true);
+
+    assertThat(record.finalDecision()).isEqualTo(AiDecision.PASS);
+    assertThat(record.interviewScore()).isEqualTo(62);
+    assertThat(record.effectiveScore()).isEqualTo(70);
+    assertThat(record.written()).isEqualTo(summary);
   }
 }

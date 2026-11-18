@@ -31,12 +31,36 @@ import {
   APPLICATION_STATUS_LABELS,
   EMAIL_LOG_STATUS_LABELS,
   PROCTOR_EVENT_LABELS,
+  PROCTOR_RISK_BADGES,
+  PROCTOR_RISK_LABELS,
+  WRITTEN_QUESTION_TYPE_LABELS,
+  WRITTEN_TEST_STATUS_LABELS,
   type ApplicationDetail,
   type ApplicationStatus,
+  type ProctorEventItem,
   type ProctorEventType,
 } from '../../types/recruitment';
 
 type DetailTab = 'overview' | 'resume' | 'interview' | 'timeline';
+
+function formatDuration(ms: number | null | undefined): string {
+  if (ms == null) return '-';
+  const totalSeconds = Math.round(ms / 1000);
+  if (totalSeconds < 60) return `${totalSeconds} 秒`;
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return seconds === 0 ? `${minutes} 分钟` : `${minutes} 分 ${seconds} 秒`;
+}
+
+function describeEvent(ev: ProctorEventItem): string {
+  const parts: string[] = [];
+  if (ev.questionIndex != null) parts.push(`第 ${ev.questionIndex + 1} 题`);
+  if (ev.durationMs != null) parts.push(`持续 ${formatDuration(ev.durationMs)}`);
+  if (ev.chars != null) parts.push(`${ev.chars} 字`);
+  if (ev.detail) parts.push(ev.detail);
+  const label = PROCTOR_EVENT_LABELS[ev.type] ?? ev.type;
+  return parts.length > 0 ? `${label}（${parts.join('，')}）` : label;
+}
 
 const NON_TERMINAL_REJECTABLE: ApplicationStatus[] = [
   'SUBMITTED',
@@ -309,6 +333,14 @@ export default function ApplicationDetailPage() {
               >
                 {APPLICATION_STATUS_LABELS[detail.status]}
               </span>
+              {detail.proctorRisk && (
+                <span
+                  data-testid="proctor-risk-badge"
+                  className={`inline-flex rounded-full px-3 py-0.5 text-xs font-medium ${PROCTOR_RISK_BADGES[detail.proctorRisk.level]}`}
+                >
+                  作答行为：{PROCTOR_RISK_LABELS[detail.proctorRisk.level]}（{detail.proctorRisk.score} 分）
+                </span>
+              )}
             </div>
             <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-slate-500 dark:text-slate-400">
               <span>投递岗位：{detail.jobTitle}</span>
@@ -596,6 +628,17 @@ export default function ApplicationDetailPage() {
               </div>
             )}
 
+            {detail.aiReview?.written && (
+              <div
+                data-testid="written-weighted-summary"
+                className="rounded-lg bg-primary-50/70 px-3 py-2 text-xs text-primary-800 dark:bg-primary-900/25 dark:text-primary-200"
+              >
+                综合分 {detail.aiReview.written.finalScore} 分 = 笔试 {detail.aiReview.written.writtenScore} 分 ×{' '}
+                {detail.aiReview.written.weight}% + 面试 {detail.aiReview.written.interviewScore} 分 ×{' '}
+                {100 - detail.aiReview.written.weight}%
+              </div>
+            )}
+
             {detail.aiReview ? (
               <div className="space-y-3 text-sm text-slate-700 dark:text-slate-300">
                 {detail.aiReview.note && (
@@ -641,14 +684,144 @@ export default function ApplicationDetailPage() {
             )}
           </div>
 
+          {/* 在线笔试详情 */}
+          {detail.writtenTest && (
+            <div className="dark-card space-y-4 p-6 lg:col-span-2" data-testid="written-detail-card">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <h3 className="text-base font-semibold text-slate-900 dark:text-white">
+                    在线笔试（选择题 / 填空题）
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    状态：{WRITTEN_TEST_STATUS_LABELS[detail.writtenTest.status]}
+                    {' · '}权重 {detail.writtenTest.weight}%
+                    {detail.writtenTest.submittedAt
+                      ? ` · 交卷于 ${formatDateTime(detail.writtenTest.submittedAt)}`
+                      : ''}
+                  </p>
+                </div>
+                <span className="text-sm font-semibold text-primary-600 dark:text-primary-400">
+                  {detail.writtenTest.score != null
+                    ? `${detail.writtenTest.score} 分（答对 ${detail.writtenTest.correctCount ?? 0} / ${detail.writtenTest.totalCount} 题）`
+                    : `共 ${detail.writtenTest.totalCount} 题`}
+                </span>
+              </div>
+
+              <div className="max-h-96 space-y-3 overflow-y-auto pr-1">
+                {detail.writtenTest.items.map(item => {
+                  const answered = item.candidateAnswer && item.candidateAnswer.length > 0;
+                  return (
+                    <div
+                      key={item.index}
+                      className="space-y-2 rounded-xl border border-slate-100 bg-slate-50/70 p-4 text-xs dark:border-slate-800 dark:bg-slate-800/50"
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-semibold text-slate-900 dark:text-white">
+                            第 {item.index + 1} 题
+                          </span>
+                          <span className="rounded bg-slate-200/70 px-1.5 py-0.5 text-slate-700 dark:bg-slate-700 dark:text-slate-200">
+                            {WRITTEN_QUESTION_TYPE_LABELS[item.type]}
+                          </span>
+                          {item.category && <span className="text-slate-400">{item.category}</span>}
+                          {item.judgedBy === 'AI' && (
+                            <span className="rounded bg-indigo-50 px-1.5 py-0.5 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300">
+                              AI 语义判分
+                            </span>
+                          )}
+                        </div>
+                        {item.correct != null && (
+                          <span
+                            className={`rounded-full px-2.5 py-0.5 font-medium ${
+                              item.correct
+                                ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300'
+                                : 'bg-rose-50 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300'
+                            }`}
+                          >
+                            {item.correct ? '正确' : answered ? '错误' : '未作答'}
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="text-sm text-slate-800 dark:text-slate-100">{item.question}</div>
+
+                      {item.type !== 'FILL_BLANK' && item.options.length > 0 && (
+                        <div className="grid gap-1 sm:grid-cols-2 text-slate-600 dark:text-slate-300">
+                          {item.options.map((opt, idx) => {
+                            const letter = String.fromCharCode(65 + idx);
+                            const isCorrectOpt = item.correctAnswers.includes(letter);
+                            const isChosen = item.candidateAnswer.includes(letter);
+                            return (
+                              <div
+                                key={letter}
+                                className={`rounded px-2 py-1 ${
+                                  isCorrectOpt
+                                    ? 'bg-emerald-50/80 text-emerald-800 dark:bg-emerald-900/25 dark:text-emerald-200'
+                                    : isChosen
+                                      ? 'bg-rose-50/80 text-rose-800 dark:bg-rose-900/25 dark:text-rose-200'
+                                      : ''
+                                }`}
+                              >
+                                {letter}. {opt}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+
+                      <div className="flex flex-wrap gap-x-4 gap-y-1 text-slate-600 dark:text-slate-300">
+                        <span>
+                          候选人作答：
+                          <strong className="text-slate-900 dark:text-white">
+                            {answered ? item.candidateAnswer.join('、') : '（未作答）'}
+                          </strong>
+                        </span>
+                        <span>
+                          标准答案：
+                          <strong className="text-emerald-700 dark:text-emerald-400">
+                            {item.correctAnswers.join(' / ')}
+                          </strong>
+                        </span>
+                      </div>
+
+                      {(item.reason || item.explanation) && (
+                        <div className="text-slate-500 dark:text-slate-400">
+                          {item.reason && <span>判分说明：{item.reason}　</span>}
+                          {item.explanation && <span>解析：{item.explanation}</span>}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           {/* 防作弊行为记录 */}
           <div className="dark-card space-y-3 p-6 lg:col-span-2">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <h3 className="flex items-center gap-2 text-base font-semibold text-slate-900 dark:text-white">
                 <ShieldAlert className="h-4 w-4 text-amber-500" />
-                在线面试行为监测（共 {proctorTotal} 次异常动作）
+                作答行为分析（共 {proctorTotal} 条记录）
               </h3>
+              {detail.proctorRisk && (
+                <span
+                  className={`rounded-full px-3 py-0.5 text-xs font-medium ${PROCTOR_RISK_BADGES[detail.proctorRisk.level]}`}
+                >
+                  {PROCTOR_RISK_LABELS[detail.proctorRisk.level]} · {detail.proctorRisk.score} 分
+                </span>
+              )}
             </div>
+            <p className="text-xs text-slate-400">
+              以下为候选人作答过程中的无感记录，仅作为辅助参考，不会自动淘汰候选人；短暂切换（少于 5 秒）不计入风险。
+            </p>
+            {(detail.proctorRisk?.findings.length ?? 0) > 0 && (
+              <ul className="list-disc space-y-1 pl-5 text-sm text-slate-700 dark:text-slate-300" data-testid="proctor-findings">
+                {detail.proctorRisk!.findings.map((f, i) => (
+                  <li key={i}>{f}</li>
+                ))}
+              </ul>
+            )}
             {proctorTotal === 0 ? (
               <p className="text-sm text-slate-400">未检测到切屏、失焦或粘贴等异常行为</p>
             ) : (
@@ -666,8 +839,7 @@ export default function ApplicationDetailPage() {
                 <div className="max-h-48 overflow-y-auto text-xs text-slate-500 dark:text-slate-400 space-y-1">
                   {detail.proctorEvents.map(ev => (
                     <div key={ev.id}>
-                      {formatDateTime(ev.occurredAt)} · {PROCTOR_EVENT_LABELS[ev.type] ?? ev.type}
-                      {ev.detail ? `（${ev.detail}）` : ''}
+                      {formatDateTime(ev.occurredAt)} · {describeEvent(ev)}
                     </div>
                   ))}
                 </div>
@@ -706,6 +878,57 @@ export default function ApplicationDetailPage() {
             <div className="dark-card p-6 text-sm text-red-600 dark:text-red-400">{interviewError}</div>
           ) : (
             <>
+              {(detail.answerTelemetry?.length ?? 0) > 0 && (
+                <div className="dark-card space-y-3 p-6">
+                  <h3 className="flex items-center gap-2 text-base font-semibold text-slate-900 dark:text-white">
+                    <ShieldAlert className="h-4 w-4 text-amber-500" />
+                    逐题作答行为
+                  </h3>
+                  <p className="text-xs text-slate-400">
+                    标红的题目存在“离开页面后大段粘贴”或“短时间大段输入”等情况，仅供参考，建议在线下面试中针对性追问。
+                  </p>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs">
+                      <thead className="text-slate-500 dark:text-slate-400">
+                        <tr className="border-b border-slate-100 dark:border-slate-800">
+                          <th className="px-2 py-2 font-medium">题号</th>
+                          <th className="px-2 py-2 font-medium">作答耗时</th>
+                          <th className="px-2 py-2 font-medium">首次输入</th>
+                          <th className="px-2 py-2 font-medium">期间离开</th>
+                          <th className="px-2 py-2 font-medium">键入字数</th>
+                          <th className="px-2 py-2 font-medium">粘贴字数</th>
+                          <th className="px-2 py-2 font-medium">粘贴占比</th>
+                          <th className="px-2 py-2 font-medium">答案字数</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {detail.answerTelemetry!.map(t => (
+                          <tr
+                            key={t.questionIndex}
+                            data-testid={`telemetry-row-${t.questionIndex}`}
+                            className={`border-b border-slate-50 dark:border-slate-800/60 ${
+                              t.flagged
+                                ? 'bg-rose-50 text-rose-700 dark:bg-rose-900/20 dark:text-rose-300'
+                                : 'text-slate-700 dark:text-slate-300'
+                            }`}
+                          >
+                            <td className="px-2 py-2">第 {t.questionIndex + 1} 题</td>
+                            <td className="px-2 py-2">{formatDuration(t.durationMs)}</td>
+                            <td className="px-2 py-2">{formatDuration(t.firstInputMs)}</td>
+                            <td className="px-2 py-2">{formatDuration(t.awayMs)}</td>
+                            <td className="px-2 py-2">{t.typedChars ?? '-'}</td>
+                            <td className="px-2 py-2">{t.pastedChars ?? '-'}</td>
+                            <td className="px-2 py-2">
+                              {t.pasteRatio == null ? '-' : `${Math.round(t.pasteRatio * 100)}%`}
+                            </td>
+                            <td className="px-2 py-2">{t.answerChars ?? '-'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
               {interviewDetail && <InterviewDetailPanel interview={interviewDetail} />}
               {voiceMessages.length > 0 && (
                 <div className="dark-card space-y-3 p-6">

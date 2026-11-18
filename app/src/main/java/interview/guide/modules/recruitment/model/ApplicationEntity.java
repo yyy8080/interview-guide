@@ -86,6 +86,19 @@ public class ApplicationEntity {
   @Column(name = "ai_result_json", columnDefinition = "TEXT")
   private String aiResultJson;
 
+  // ========== 作答行为风险（交卷时计算，仅供参考） ==========
+
+  @Column(name = "proctor_risk_score")
+  private Integer proctorRiskScore;
+
+  @Enumerated(EnumType.STRING)
+  @Column(name = "proctor_risk_level", length = 16)
+  private ProctorRiskLevel proctorRiskLevel;
+
+  /** 在线笔试得分 0-100 */
+  @Column(name = "written_score")
+  private Integer writtenScore;
+
   // ========== 异步任务（初筛 / AI 决策）执行代次 ==========
 
   @Column(name = "task_attempt_id", length = 64)

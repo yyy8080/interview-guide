@@ -7,12 +7,15 @@ import interview.guide.modules.recruitment.model.CandidateAnswerResponse;
 import interview.guide.modules.recruitment.model.CandidateApplicationDTO;
 import interview.guide.modules.recruitment.model.CandidateInterviewDTO;
 import interview.guide.modules.recruitment.model.CandidateProfileDTO;
+import interview.guide.modules.recruitment.model.CandidateWrittenTestDTO;
 import interview.guide.modules.recruitment.model.OfflineRescheduleRequest;
 import interview.guide.modules.recruitment.model.ProctorEventRequest;
 import interview.guide.modules.recruitment.model.StartInterviewRequest;
+import interview.guide.modules.recruitment.model.WrittenAnswersRequest;
 import interview.guide.modules.recruitment.service.CandidateApplicationService;
 import interview.guide.modules.recruitment.service.CandidateAuthService;
 import interview.guide.modules.recruitment.service.CandidateInterviewService;
+import interview.guide.modules.recruitment.service.CandidateWrittenTestService;
 import jakarta.validation.Valid;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
@@ -20,6 +23,7 @@ import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -38,6 +42,7 @@ public class CandidatePortalController {
   private final CandidateAuthService candidateAuthService;
   private final CandidateApplicationService applicationService;
   private final CandidateInterviewService interviewService;
+  private final CandidateWrittenTestService writtenTestService;
 
   @GetMapping("/me")
   public Result<CandidateProfileDTO> me(@RequestHeader(value = CandidateAuthService.TOKEN_HEADER, required = false)
@@ -121,6 +126,41 @@ public class CandidatePortalController {
       @Valid @RequestBody ProctorEventRequest request) {
     interviewService.recordProctor(candidateAuthService.requireCandidateId(token), id, request);
     return Result.success(null);
+  }
+
+  // ========== 在线笔试（选择题 / 填空题） ==========
+
+  @GetMapping("/applications/{id}/written-test")
+  public Result<CandidateWrittenTestDTO> getWrittenTest(
+      @RequestHeader(value = CandidateAuthService.TOKEN_HEADER, required = false) String token,
+      @PathVariable Long id) {
+    return Result.success(writtenTestService.getState(candidateAuthService.requireCandidateId(token), id));
+  }
+
+  @PostMapping("/applications/{id}/written-test/start")
+  @RateLimit(dimension = RateLimit.Dimension.IP, count = 10, interval = 1, timeUnit = RateLimit.TimeUnit.MINUTES)
+  public Result<CandidateWrittenTestDTO> startWrittenTest(
+      @RequestHeader(value = CandidateAuthService.TOKEN_HEADER, required = false) String token,
+      @PathVariable Long id) {
+    return Result.success(writtenTestService.start(candidateAuthService.requireCandidateId(token), id));
+  }
+
+  @PutMapping("/applications/{id}/written-test/answers")
+  @RateLimit(dimension = RateLimit.Dimension.IP, count = 120, interval = 1, timeUnit = RateLimit.TimeUnit.MINUTES)
+  public Result<Void> saveWrittenAnswers(
+      @RequestHeader(value = CandidateAuthService.TOKEN_HEADER, required = false) String token,
+      @PathVariable Long id,
+      @Valid @RequestBody WrittenAnswersRequest request) {
+    writtenTestService.saveAnswers(candidateAuthService.requireCandidateId(token), id, request);
+    return Result.success(null);
+  }
+
+  @PostMapping("/applications/{id}/written-test/submit")
+  public Result<CandidateWrittenTestDTO> submitWrittenTest(
+      @RequestHeader(value = CandidateAuthService.TOKEN_HEADER, required = false) String token,
+      @PathVariable Long id,
+      @Valid @RequestBody WrittenAnswersRequest request) {
+    return Result.success(writtenTestService.submit(candidateAuthService.requireCandidateId(token), id, request));
   }
 
   // ========== 线下面试 ==========

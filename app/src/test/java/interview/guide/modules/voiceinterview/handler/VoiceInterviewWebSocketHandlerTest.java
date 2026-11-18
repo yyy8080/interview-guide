@@ -155,7 +155,8 @@ class VoiceInterviewWebSocketHandlerTest {
         voiceContextCompressor,
         voiceHistoryLoader,
         properties,
-        meterRegistryProvider
+        meterRegistryProvider,
+        org.mockito.Mockito.mock(org.springframework.context.ApplicationEventPublisher.class)
     );
   }
 

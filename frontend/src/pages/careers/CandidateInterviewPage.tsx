@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import type { ClipboardEvent as ReactClipboardEvent } from 'react';
 import { Link, Navigate, useParams } from 'react-router-dom';
 import {
   CheckCircle2,
@@ -8,11 +9,16 @@ import {
   Mic,
   Send,
   ShieldCheck,
+  X,
 } from 'lucide-react';
 import { candidateApi } from '../../api/candidate';
 import { getErrorMessage } from '../../api/request';
 import CandidateVoicePanel from '../../components/CandidateVoicePanel';
+import CandidateWrittenTest from '../../components/CandidateWrittenTest';
 import ConfirmDialog from '../../components/ConfirmDialog';
+import ProctorWatermark from '../../components/ProctorWatermark';
+import { useProctorMonitor } from '../../hooks/useProctorMonitor';
+import { AnswerTelemetryTracker } from '../../utils/proctorTelemetry';
 import { ROUTES } from '../../constants/routes';
 import { isCandidateAuthenticated } from '../../utils/candidateStorage';
 import type { ConcreteInterviewMode } from '../../types/job';
@@ -20,7 +26,6 @@ import type {
   CandidateApplication,
   CandidateInterviewState,
   CandidateQuestion,
-  ProctorEventType,
 } from '../../types/recruitment';
 
 interface QaItem {
@@ -49,24 +54,18 @@ export default function CandidateInterviewPage() {
   const [submitting, setSubmitting] = useState(false);
   const [completing, setCompleting] = useState(false);
   const [confirmCompleteOpen, setConfirmCompleteOpen] = useState(false);
+  const [writtenActive, setWrittenActive] = useState(false);
+  const [writtenJustFinished, setWrittenJustFinished] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const [answer, setAnswer] = useState('');
   const [history, setHistory] = useState<QaItem[]>([]);
   const [remaining, setRemaining] = useState<number | null>(null);
 
-  const lastProctorAtRef = useRef<Record<string, number>>({});
-
-  const reportProctor = useCallback(
-    (type: ProctorEventType, detail?: string) => {
-      if (!id || Number.isNaN(id)) return;
-      const now = Date.now();
-      if (now - (lastProctorAtRef.current[type] ?? 0) < 3000) return;
-      lastProctorAtRef.current[type] = now;
-      candidateApi.recordProctor(id, type, detail).catch(() => {});
-    },
-    [id],
-  );
+  // 当前题作答遥测（只统计数量与时间，不记录内容）
+  const [telemetry] = useState(() => new AnswerTelemetryTracker());
+  const currentQuestionIndexRef = useRef<number | undefined>(undefined);
+  const writtenFocusIndexRef = useRef<number | undefined>(undefined);
 
   const applyQuestion = (q: CandidateQuestion | null) => {
     if (!q) return;
@@ -124,28 +123,62 @@ export default function CandidateInterviewPage() {
     return () => window.clearInterval(timer);
   }, [remaining, state, id]);
 
-  // 防作弊监测（仅面试进行中生效）
+  // 作答行为无感采集（笔试进行中与面试进行中生效，不弹窗不阻断）
   const isInterviewing = state?.stage === 'INTERVIEWING' && !state.finished;
+  const textQuestionIndex = state?.mode === 'TEXT' ? state.currentQuestion?.questionIndex : undefined;
   useEffect(() => {
-    if (!isInterviewing) return;
+    currentQuestionIndexRef.current = textQuestionIndex;
+    telemetry.reset();
+  }, [textQuestionIndex, telemetry]);
 
-    const onVisibility = () => {
-      if (document.visibilityState === 'hidden') {
-        reportProctor('TAB_HIDDEN');
-      }
-    };
-    const onBlur = () => reportProctor('WINDOW_BLUR');
-    const onCopy = () => reportProctor('COPY');
+  const handleWrittenActiveChange = useCallback((active: boolean, focusIndex?: number) => {
+    setWrittenActive(active);
+    if (focusIndex !== undefined) {
+      writtenFocusIndexRef.current = focusIndex;
+    }
+  }, []);
 
-    document.addEventListener('visibilitychange', onVisibility);
-    window.addEventListener('blur', onBlur);
-    document.addEventListener('copy', onCopy);
-    return () => {
-      document.removeEventListener('visibilitychange', onVisibility);
-      window.removeEventListener('blur', onBlur);
-      document.removeEventListener('copy', onCopy);
-    };
-  }, [isInterviewing, reportProctor]);
+  const handleWrittenCompleted = useCallback(() => {
+    setWrittenActive(false);
+    setWrittenJustFinished(true);
+    candidateApi.getInterview(id).then(setState).catch(() => {
+      setState(prev => (prev ? { ...prev, writtenTestStatus: 'GRADED' } : prev));
+    });
+  }, [id]);
+
+  const getQuestionIndex = useCallback(
+    () => (isInterviewing ? currentQuestionIndexRef.current : writtenFocusIndexRef.current),
+    [isInterviewing],
+  );
+  const handleAway = useCallback(
+    (ms: number) => {
+      if (isInterviewing) telemetry.addAway(ms);
+    },
+    [isInterviewing, telemetry],
+  );
+  const { report: reportProctor, reminder, dismissReminder } = useProctorMonitor({
+    applicationId: id,
+    enabled: isInterviewing || writtenActive,
+    awayReminder: state?.proctorAwayReminder ?? true,
+    getQuestionIndex,
+    onAway: handleAway,
+  });
+
+  const handleAnswerPaste = (e: ReactClipboardEvent<HTMLTextAreaElement>) => {
+    const chars = e.clipboardData?.getData('text')?.length ?? 0;
+    telemetry.recordPaste(chars);
+    if (chars > 0) reportProctor({ type: 'PASTE', chars });
+  };
+
+  /** 题干区域：不可选中复制、禁用右键菜单（作答区不受影响） */
+  const protectQuestion = {
+    onCopy: (e: ReactClipboardEvent<HTMLElement>) => {
+      e.preventDefault();
+      reportProctor({ type: 'COPY' }, true);
+    },
+    onContextMenu: (e: { preventDefault: () => void }) => e.preventDefault(),
+    onDragStart: (e: { preventDefault: () => void }) => e.preventDefault(),
+  };
 
   if (!authed) {
     const redirect = applicationId ? ROUTES.careerInterview(id) : ROUTES.careerMe;
@@ -174,7 +207,12 @@ export default function CandidateInterviewPage() {
     setSubmitting(true);
     setError(null);
     try {
-      const res = await candidateApi.submitAnswer(id, currentQ.questionIndex, submittedText);
+      const res = await candidateApi.submitAnswer(
+        id,
+        currentQ.questionIndex,
+        submittedText,
+        telemetry.snapshot(),
+      );
       setHistory(prev =>
         prev.map(item =>
           item.questionIndex === currentQ.questionIndex ? { ...item, answer: submittedText } : item,
@@ -269,12 +307,61 @@ export default function CandidateInterviewPage() {
     );
   }
 
-  // 尚未开始：选择面试形式 + 须知
+  const reminderToast = reminder ? (
+    <div
+      role="status"
+      className="fixed right-4 top-20 z-50 flex items-center gap-2 rounded-xl bg-white/95 px-4 py-2.5 text-sm text-slate-700 shadow-lg ring-1 ring-slate-200 dark:bg-slate-800/95 dark:text-slate-200 dark:ring-slate-700"
+    >
+      <span>{reminder}</span>
+      <button
+        type="button"
+        aria-label="关闭提醒"
+        onClick={dismissReminder}
+        className="rounded p-0.5 text-slate-400 hover:text-slate-600"
+      >
+        <X className="h-3.5 w-3.5" />
+      </button>
+    </div>
+  ) : null;
+
+  const needsWrittenTest = Boolean(
+    !isInterviewing
+      && state?.writtenTestEnabled
+      && state.writtenTestStatus !== 'SUBMITTED'
+      && state.writtenTestStatus !== 'GRADED',
+  );
+
+  // 环节 1：在线笔试（在 AI 面试前完成）
+  if (needsWrittenTest && state) {
+    return (
+      <>
+        <CandidateWrittenTest
+          applicationId={id}
+          jobTitle={app.jobTitle}
+          plannedCount={state.writtenQuestionCount ?? 10}
+          timeLimitMinutes={state.writtenTimeLimitMinutes ?? 15}
+          initialStatus={state.writtenTestStatus ?? null}
+          onCompleted={handleWrittenCompleted}
+          onProctor={reportProctor}
+          onActiveChange={handleWrittenActiveChange}
+        />
+        {reminderToast}
+        {writtenActive && state.watermarkText && <ProctorWatermark text={state.watermarkText} />}
+      </>
+    );
+  }
+
+  // 尚未开始面试：选择面试形式 + 须知
   if (!isInterviewing) {
     return (
       <div className="mx-auto max-w-2xl space-y-6">
         <div className="dark-card space-y-5 p-6 sm:p-8">
           <div>
+            {state?.writtenTestEnabled && (
+              <span className="mb-1 inline-block rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">
+                环节 2 / 2 · 在线笔试已完成，请继续完成 AI 面试
+              </span>
+            )}
             <h1 className="text-xl font-bold text-slate-900 dark:text-white">
               {app.jobTitle} · 在线 AI 面试
             </h1>
@@ -283,6 +370,15 @@ export default function CandidateInterviewPage() {
               {app.timeLimitMinutes ? ` · 限时 ${app.timeLimitMinutes} 分钟` : ''}
             </p>
           </div>
+
+          {writtenJustFinished && (
+            <div
+              data-testid="written-finished-banner"
+              className="rounded-xl bg-emerald-50 px-4 py-2.5 text-sm text-emerald-700 dark:bg-emerald-900/25 dark:text-emerald-300"
+            >
+              在线笔试已交卷，系统已在后台判分。现在请选择形式进入 AI 面试。
+            </div>
+          )}
 
           {error && (
             <div className="rounded-xl bg-red-50 px-4 py-2.5 text-sm text-red-600 dark:bg-red-900/20 dark:text-red-400">
@@ -346,7 +442,8 @@ export default function CandidateInterviewPage() {
             </div>
             <ul className="list-disc space-y-1 pl-5">
               <li>点击「开始面试」后立即开始计时，请确保网络通畅、环境安静。</li>
-              <li>请本人独立完成作答，面试期间切换标签页、窗口失焦、复制题目或粘贴内容会被系统记录并供 HR 参考。</li>
+              <li>本次面试不会开启摄像头，也无需全屏。</li>
+              <li>为保证公平，请本人独立完成作答；系统会记录离开页面、粘贴等作答行为，仅供 HR 复核参考。</li>
             </ul>
           </div>
 
@@ -389,7 +486,10 @@ export default function CandidateInterviewPage() {
           voiceSessionId={state.voiceSessionId}
           onEndInterview={handleEndVoice}
           ending={completing}
+          onProctor={reportProctor}
         />
+        {reminderToast}
+        {state.watermarkText && <ProctorWatermark text={state.watermarkText} />}
       </div>
     );
   }
@@ -444,7 +544,11 @@ export default function CandidateInterviewPage() {
       <div className="dark-card max-h-[420px] space-y-4 overflow-y-auto p-6">
         {history.map(item => (
           <div key={item.questionIndex} className="space-y-3">
-            <div className="rounded-2xl bg-slate-50 p-4 text-sm text-slate-800 dark:bg-slate-800/70 dark:text-slate-100">
+            <div
+              {...protectQuestion}
+              data-testid="question-stem"
+              className="select-none rounded-2xl bg-slate-50 p-4 text-sm text-slate-800 dark:bg-slate-800/70 dark:text-slate-100"
+            >
               <div className="mb-1 flex items-center gap-2 text-xs text-primary-600 dark:text-primary-400">
                 <span className="font-semibold">问题 {item.questionIndex + 1}</span>
                 {item.category && <span>· {item.category}</span>}
@@ -468,8 +572,11 @@ export default function CandidateInterviewPage() {
             rows={5}
             value={answer}
             disabled={submitting}
-            onChange={e => setAnswer(e.target.value)}
-            onPaste={() => reportProctor('PASTE', `Q${currentQ.questionIndex + 1}`)}
+            onChange={e => {
+              telemetry.recordChange(answer.length, e.target.value.length);
+              setAnswer(e.target.value);
+            }}
+            onPaste={handleAnswerPaste}
             onKeyDown={e => {
               if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
                 handleSubmitAnswer();
@@ -502,6 +609,9 @@ export default function CandidateInterviewPage() {
         onConfirm={handleCompleteEarly}
         onCancel={() => setConfirmCompleteOpen(false)}
       />
+
+      {reminderToast}
+      {state.watermarkText && <ProctorWatermark text={state.watermarkText} />}
     </div>
   );
 }

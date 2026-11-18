@@ -37,6 +37,17 @@ public class ProctorEventEntity {
   @Column(length = 500)
   private String detail;
 
+  /** 离开 / 失焦持续时长或语音应答延迟（毫秒） */
+  @Column(name = "duration_ms")
+  private Long durationMs;
+
+  /** 事件发生时正在作答的题号（从 0 开始） */
+  @Column(name = "question_index")
+  private Integer questionIndex;
+
+  /** 粘贴字数 / 语音改写字数 */
+  private Integer chars;
+
   @Column(name = "occurred_at", nullable = false)
   private LocalDateTime occurredAt;
 }

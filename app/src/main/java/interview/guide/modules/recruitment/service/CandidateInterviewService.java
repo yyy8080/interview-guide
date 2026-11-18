@@ -17,6 +17,8 @@ import interview.guide.modules.job.model.JobPositionEntity;
 import interview.guide.modules.job.service.JobPositionService;
 import interview.guide.modules.knowledgebase.model.CreateKnowledgeBaseInterviewRequest;
 import interview.guide.modules.knowledgebase.service.KnowledgeBaseInterviewService;
+import interview.guide.modules.recruitment.model.AnswerTelemetry;
+import interview.guide.modules.recruitment.model.AnswerTelemetryEntity;
 import interview.guide.modules.recruitment.model.ApplicationEntity;
 import interview.guide.modules.recruitment.model.ApplicationStatus;
 import interview.guide.modules.recruitment.model.CandidateAnswerRequest;
@@ -26,8 +28,12 @@ import interview.guide.modules.recruitment.model.CandidateQuestionDTO;
 import interview.guide.modules.recruitment.model.OperatorType;
 import interview.guide.modules.recruitment.model.ProctorEventEntity;
 import interview.guide.modules.recruitment.model.ProctorEventRequest;
+import interview.guide.modules.recruitment.model.WrittenTestEntity;
+import interview.guide.modules.recruitment.model.WrittenTestStatus;
+import interview.guide.modules.recruitment.repository.AnswerTelemetryRepository;
 import interview.guide.modules.recruitment.repository.ApplicationRepository;
 import interview.guide.modules.recruitment.repository.ProctorEventRepository;
+import interview.guide.modules.recruitment.repository.WrittenTestRepository;
 import interview.guide.modules.resume.model.ResumeEntity;
 import interview.guide.modules.resume.repository.ResumeRepository;
 import interview.guide.modules.voiceinterview.dto.CreateSessionRequest;
@@ -69,6 +75,8 @@ public class CandidateInterviewService {
 
   private final ApplicationRepository applicationRepository;
   private final ProctorEventRepository proctorEventRepository;
+  private final AnswerTelemetryRepository answerTelemetryRepository;
+  private final WrittenTestRepository writtenTestRepository;
   private final ResumeRepository resumeRepository;
   private final JobPositionService jobPositionService;
   private final InterviewSessionService interviewSessionService;
@@ -115,6 +123,7 @@ public class CandidateInterviewService {
     }
     assertStartable(application);
     JobPositionEntity job = jobPositionService.getEntity(application.getJobId());
+    assertWrittenCompletedIfRequired(applicationId, job);
     if (job.getInterviewMode() == null || !job.getInterviewMode().allows(mode)) {
       throw new BusinessException(ErrorCode.INTERVIEW_MODE_NOT_ALLOWED);
     }
@@ -157,6 +166,16 @@ public class CandidateInterviewService {
     }
     if (application.getInviteExpiresAt() != null && application.getInviteExpiresAt().isBefore(LocalDateTime.now())) {
       throw new BusinessException(ErrorCode.INTERVIEW_NOT_AVAILABLE, "面试邀请已过期");
+    }
+  }
+
+  private void assertWrittenCompletedIfRequired(Long applicationId, JobPositionEntity job) {
+    WrittenTestEntity test = writtenTestRepository.findByApplicationId(applicationId).orElse(null);
+    if (test != null && test.getStatus() == WrittenTestStatus.IN_PROGRESS) {
+      throw new BusinessException(ErrorCode.INTERVIEW_NOT_AVAILABLE, "请先完成并提交在线笔试");
+    }
+    if (job.isWrittenTestEnabled() && test == null) {
+      throw new BusinessException(ErrorCode.INTERVIEW_NOT_AVAILABLE, "请先完成在线笔试");
     }
   }
 
@@ -234,6 +253,12 @@ public class CandidateInterviewService {
     }
 
     boolean voice = application.getInterviewMode() == InterviewMode.VOICE && application.getVoiceSessionId() != null;
+    WrittenTestEntity writtenTest = writtenTestRepository.findByApplicationId(applicationId).orElse(null);
+    boolean writtenEnabled = job.isWrittenTestEnabled() || writtenTest != null;
+    WrittenTestStatus writtenStatus = writtenTest != null ? writtenTest.getStatus() : null;
+    int writtenCount = writtenTest != null
+        ? writtenTest.getTotalCount()
+        : job.getWrittenSingleCount() + job.getWrittenMultiCount() + job.getWrittenFillCount();
     return new CandidateInterviewDTO(
         application.getId(),
         job.getTitle(),
@@ -248,7 +273,19 @@ public class CandidateInterviewService {
         finished,
         voice ? application.getVoiceSessionId() : null,
         voice && interviewing ? CANDIDATE_VOICE_WS_PREFIX + application.getVoiceSessionId() : null,
-        application.getInterviewMode() == InterviewMode.VOICE ? plannedVoiceMinutes(job) : null);
+        application.getInterviewMode() == InterviewMode.VOICE ? plannedVoiceMinutes(job) : null,
+        job.isProctorAwayReminder(),
+        job.isProctorWatermark() ? watermarkText(application) : null,
+        writtenEnabled,
+        writtenStatus,
+        writtenCount,
+        job.getWrittenTimeLimitMinutes());
+  }
+
+  /** 水印文字：姓名 + 投递编号（不含手机号 / 邮箱等敏感信息） */
+  static String watermarkText(ApplicationEntity application) {
+    String name = application.getCandidateName() == null ? "候选人" : application.getCandidateName();
+    return name + " · #" + application.getId();
   }
 
   /** 去掉参考答案、评分要点等信息，只保留题干 */
@@ -272,6 +309,7 @@ public class CandidateInterviewService {
     String answer = request.answer() == null || request.answer().isBlank() ? "（未作答）" : request.answer().trim();
     SubmitAnswerResponse response = interviewSessionService.submitAnswer(
         new SubmitAnswerRequest(application.getInterviewSessionId(), request.questionIndex(), answer));
+    saveTelemetryQuietly(applicationId, request);
     if (!response.hasNextQuestion()) {
       workflowService.markInterviewFinished(applicationId, OperatorType.CANDIDATE, candidateId, "候选人完成全部题目");
     }
@@ -319,19 +357,66 @@ public class CandidateInterviewService {
 
   public void recordProctor(Long candidateId, Long applicationId, ProctorEventRequest request) {
     ApplicationEntity application = requireOwned(candidateId, applicationId);
-    if (application.getStatus() != ApplicationStatus.INTERVIEWING) {
+    saveProctorEvent(application, request);
+  }
+
+  /**
+   * 系统侧检测到的行为事件（如语音作答改写），按语音会话定位投递
+   */
+  public void recordVoiceProctor(Long voiceSessionId, ProctorEventRequest request) {
+    if (voiceSessionId == null) {
       return;
     }
-    if (proctorEventRepository.countByApplicationId(applicationId) >= MAX_PROCTOR_EVENTS) {
+    applicationRepository.findByVoiceSessionId(voiceSessionId)
+        .ifPresent(application -> saveProctorEvent(application, request));
+  }
+
+  private void saveProctorEvent(ApplicationEntity application, ProctorEventRequest request) {
+    boolean activeInterview = application.getStatus() == ApplicationStatus.INTERVIEWING;
+    boolean activeWritten = application.getStatus() == ApplicationStatus.INTERVIEW_INVITED
+        && writtenTestRepository.existsByApplicationIdAndStatus(application.getId(), WrittenTestStatus.IN_PROGRESS);
+    if (!activeInterview && !activeWritten) {
+      return;
+    }
+    if (proctorEventRepository.countByApplicationId(application.getId()) >= MAX_PROCTOR_EVENTS) {
       return;
     }
     ProctorEventEntity event = new ProctorEventEntity();
-    event.setApplicationId(applicationId);
+    event.setApplicationId(application.getId());
     event.setEventType(request.type());
     String detail = request.detail();
     event.setDetail(detail != null && detail.length() > 255 ? detail.substring(0, 255) : detail);
+    event.setDurationMs(request.durationMs());
+    event.setQuestionIndex(request.questionIndex());
+    event.setChars(request.chars());
     event.setOccurredAt(LocalDateTime.now());
     proctorEventRepository.save(event);
+  }
+
+  /** 保存逐题作答遥测；遥测是辅助信息，失败不影响答题 */
+  private void saveTelemetryQuietly(Long applicationId, CandidateAnswerRequest request) {
+    AnswerTelemetry telemetry = request.telemetry();
+    if (telemetry == null) {
+      return;
+    }
+    try {
+      AnswerTelemetryEntity entity = answerTelemetryRepository
+          .findByApplicationIdAndQuestionIndex(applicationId, request.questionIndex())
+          .orElseGet(AnswerTelemetryEntity::new);
+      entity.setApplicationId(applicationId);
+      entity.setQuestionIndex(request.questionIndex());
+      entity.setDurationMs(telemetry.durationMs());
+      entity.setFirstInputMs(telemetry.firstInputMs());
+      entity.setTypedChars(telemetry.typedChars());
+      entity.setPastedChars(telemetry.pastedChars());
+      entity.setMaxBurstChars(telemetry.maxBurstChars());
+      entity.setAwayMs(telemetry.awayMs());
+      entity.setAnswerChars(request.answer() == null ? 0 : request.answer().trim().length());
+      answerTelemetryRepository.save(entity);
+    } catch (Exception e) {
+      log.warn("保存作答遥测失败: applicationId={}, questionIndex={}, error={}", applicationId,
+          request.questionIndex(), e.getMessage());
+    }
   }
 
   // ========== 超时自动交卷（调度调用） ==========

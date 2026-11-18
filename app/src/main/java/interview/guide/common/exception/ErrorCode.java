@@ -110,6 +110,9 @@ public enum ErrorCode {
     SCREENING_FAILED(14011, "AI 简历初筛失败"),
     DECISION_FAILED(14012, "AI 审核决策失败"),
     RESUME_IN_USE(14013, "该简历关联了招聘投递，不能删除"),
+    WRITTEN_TEST_GENERATION_FAILED(14014, "AI 笔试出题失败，请稍后重试"),
+    WRITTEN_TEST_JUDGE_FAILED(14015, "AI 填空题判分失败"),
+    WRITTEN_TEST_NOT_AVAILABLE(14016, "当前无法进行笔试"),
 
     // ========== 邮件模块错误 15xxx ==========
     MAIL_NOT_CONFIGURED(15001, "邮件服务未配置或未启用"),

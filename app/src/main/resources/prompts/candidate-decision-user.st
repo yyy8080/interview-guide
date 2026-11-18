@@ -9,6 +9,9 @@
 ## 简历初筛结果
 {screeningSummary}
 
+## 在线笔试
+{writtenSummary}
+
 ## 在线面试评估
 面试形式：{interviewMode}
 面试总分（0-100）：{interviewScore}

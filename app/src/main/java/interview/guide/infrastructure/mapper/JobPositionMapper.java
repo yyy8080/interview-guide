@@ -38,5 +38,13 @@ public interface JobPositionMapper {
   @Mapping(target = "createdAt", ignore = true)
   @Mapping(target = "updatedAt", ignore = true)
   @Mapping(target = "screeningEnabled", source = "screeningEnabled")
+  @Mapping(target = "proctorAwayReminder", ignore = true)
+  @Mapping(target = "proctorWatermark", ignore = true)
+  @Mapping(target = "writtenTestEnabled", ignore = true)
+  @Mapping(target = "writtenSingleCount", ignore = true)
+  @Mapping(target = "writtenMultiCount", ignore = true)
+  @Mapping(target = "writtenFillCount", ignore = true)
+  @Mapping(target = "writtenTimeLimitMinutes", ignore = true)
+  @Mapping(target = "writtenWeight", ignore = true)
   void updateEntity(JobPositionRequest request, @MappingTarget JobPositionEntity entity);
 }

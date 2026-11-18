@@ -2,6 +2,7 @@ package interview.guide.modules.recruitment.repository;
 
 import interview.guide.modules.recruitment.model.ApplicationEntity;
 import interview.guide.modules.recruitment.model.ApplicationStatus;
+import interview.guide.modules.recruitment.model.ProctorRiskLevel;
 import jakarta.persistence.LockModeType;
 import java.time.LocalDateTime;
 import java.util.Collection;
@@ -39,13 +40,14 @@ public interface ApplicationRepository extends JpaRepository<ApplicationEntity, 
   Optional<ApplicationEntity> findByIdForUpdate(@Param("id") Long id);
 
   /**
-   * 后台投递列表：按岗位 / 状态 / 关键字（姓名、邮箱、手机号）筛选
+   * 后台投递列表：按岗位 / 状态 / 作弊风险等级 / 关键字（姓名、邮箱、手机号）筛选
    */
   @Query(value = """
       SELECT a FROM ApplicationEntity a, CandidateEntity c
       WHERE c.id = a.candidateId
         AND (:jobId IS NULL OR a.jobId = :jobId)
         AND (:allStatuses = TRUE OR a.status IN :statuses)
+        AND (:allRiskLevels = TRUE OR a.proctorRiskLevel IN :riskLevels)
         AND (LOWER(a.candidateName) LIKE :pattern OR LOWER(c.email) LIKE :pattern
              OR COALESCE(a.candidatePhone, '') LIKE :pattern)
       """,
@@ -54,12 +56,15 @@ public interface ApplicationRepository extends JpaRepository<ApplicationEntity, 
       WHERE c.id = a.candidateId
         AND (:jobId IS NULL OR a.jobId = :jobId)
         AND (:allStatuses = TRUE OR a.status IN :statuses)
+        AND (:allRiskLevels = TRUE OR a.proctorRiskLevel IN :riskLevels)
         AND (LOWER(a.candidateName) LIKE :pattern OR LOWER(c.email) LIKE :pattern
              OR COALESCE(a.candidatePhone, '') LIKE :pattern)
       """)
   Page<ApplicationEntity> search(@Param("jobId") Long jobId,
                                  @Param("allStatuses") boolean allStatuses,
                                  @Param("statuses") Collection<ApplicationStatus> statuses,
+                                 @Param("allRiskLevels") boolean allRiskLevels,
+                                 @Param("riskLevels") Collection<ProctorRiskLevel> riskLevels,
                                  @Param("pattern") String pattern,
                                  Pageable pageable);
 

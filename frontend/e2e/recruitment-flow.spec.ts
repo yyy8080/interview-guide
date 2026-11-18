@@ -306,6 +306,26 @@ test.describe('企业招聘全流程（候选人门户 + HR 后台审核与邮�
       proctorEvents: [
         { id: 1, type: 'PASTE', detail: 'Q1', occurredAt: '2026-11-17T10:08:00' },
       ],
+      proctorRisk: {
+        score: 30,
+        level: 'MEDIUM',
+        findings: ['第 1 题粘贴 260 字（占 93%），作答期间离开 40 秒'],
+        flaggedQuestions: [0],
+      },
+      answerTelemetry: [
+        {
+          questionIndex: 0,
+          durationMs: 95000,
+          firstInputMs: 42000,
+          typedChars: 20,
+          pastedChars: 260,
+          maxBurstChars: 0,
+          awayMs: 40000,
+          answerChars: 280,
+          pasteRatio: 0.93,
+          flagged: true,
+        },
+      ],
       logs: [
         {
           id: 1,
@@ -341,6 +361,8 @@ test.describe('企业招聘全流程（候选人门户 + HR 后台审核与邮�
             screeningScore: 88,
             aiScore: 86,
             aiDecision: 'PASS',
+            proctorRiskScore: 30,
+            proctorRiskLevel: 'MEDIUM',
             submittedAt: '2026-11-17T10:00:00',
             updatedAt: '2026-11-17T10:26:00',
           },
@@ -459,11 +481,14 @@ test.describe('企业招聘全流程（候选人门户 + HR 后台审核与邮�
     // 1. 进入投递管理列表并跳转审核工作台
     await page.goto('/admin/applications');
     await expect(page.getByRole('heading', { name: '投递管理' })).toBeVisible();
+    await expect(page.getByTestId('risk-cell-101')).toHaveText('中风险 · 30');
     await page.getByRole('link', { name: '去审核' }).click();
 
     // 2. 审核工作台查看 AI 评估结论与行为监测并点击人工通过
     await expect(page.getByText('技术功底扎实，建议进入线下面试深挖系统容灾方案')).toBeVisible();
     await expect(page.getByText('粘贴内容：1 次')).toBeVisible();
+    await expect(page.getByTestId('proctor-risk-badge')).toHaveText('作答行为：中风险（30 分）');
+    await expect(page.getByTestId('proctor-findings')).toContainText('第 1 题粘贴 260 字');
     await page.getByPlaceholder(/填写审核意见/).fill('同意安排线下面试');
     await page.getByRole('button', { name: '审核通过（进入线下邀约）' }).click();
     await expect(page.getByText('已审核通过，请继续安排线下面试')).toBeVisible();
@@ -498,5 +523,252 @@ test.describe('企业招聘全流程（候选人门户 + HR 后台审核与邮�
 
     await page.getByRole('button', { name: '查询应用发信邮箱' }).click();
     await expect(page.getByText('当前应用主发信邮箱：recruit-app@star.wecom.work（别名：hr@star.com）')).toBeVisible();
+  });
+
+  test('岗位启用在线笔试时，候选人先完成单选/多选/填空笔试再进入 AI 面试，HR 后台查看逐题判分与加权分', async ({ page }) => {
+    await page.addInitScript(() => {
+      localStorage.setItem('ig_candidate_token', 'cand-jwt-written-002');
+      localStorage.setItem(
+        'ig_candidate_profile',
+        JSON.stringify({ id: 88, email: 'written@example.com', name: '李华', phone: null }),
+      );
+    });
+
+    let writtenStatus: 'IN_PROGRESS' | 'GRADED' | null = null;
+    let submittedAnswers: Record<string, string[]> | null = null;
+
+    await page.route('**/api/candidate/applications/602', route =>
+      ok(route, {
+        id: 602,
+        jobId: 12,
+        jobTitle: '后端研发工程师',
+        department: '技术部',
+        location: '杭州',
+        stage: 'INTERVIEW_PENDING',
+        availableModes: ['TEXT', 'VOICE'],
+        interviewMode: null,
+        questionCount: 5,
+        timeLimitMinutes: 30,
+        submittedAt: '2026-11-18T09:00:00',
+        inviteExpiresAt: '2026-11-25T09:00:00',
+        interviewStartedAt: null,
+        interviewDeadlineAt: null,
+        interviewCompletedAt: null,
+        offlineInterview: null,
+      }),
+    );
+
+    await page.route('**/api/candidate/applications/602/interview', route =>
+      ok(route, {
+        applicationId: 602,
+        jobTitle: '后端研发工程师',
+        mode: null,
+        stage: 'INTERVIEW_PENDING',
+        startedAt: null,
+        deadlineAt: null,
+        remainingSeconds: null,
+        totalQuestions: 0,
+        currentQuestionIndex: 0,
+        currentQuestion: null,
+        finished: false,
+        voiceSessionId: null,
+        voiceWsPath: null,
+        plannedDurationMinutes: null,
+        proctorAwayReminder: true,
+        watermarkText: '李华 · #602',
+        writtenTestEnabled: true,
+        writtenTestStatus: writtenStatus,
+        writtenQuestionCount: 3,
+        writtenTimeLimitMinutes: 15,
+      }),
+    );
+
+    await page.route('**/api/candidate/applications/602/written-test/start', route => {
+      writtenStatus = 'IN_PROGRESS';
+      return ok(route, {
+        applicationId: 602,
+        status: 'IN_PROGRESS',
+        totalQuestions: 3,
+        questions: [
+          {
+            index: 0,
+            type: 'SINGLE_CHOICE',
+            question: 'MySQL InnoDB 默认事务隔离级别是什么？',
+            options: ['READ COMMITTED', 'REPEATABLE READ', 'SERIALIZABLE'],
+            category: 'MySQL',
+          },
+          {
+            index: 1,
+            type: 'MULTIPLE_CHOICE',
+            question: '以下属于 Java 并发包常用同步工具类的有哪些？',
+            options: ['CountDownLatch', 'ArrayList', 'CyclicBarrier', 'HashMap'],
+            category: 'JUC',
+          },
+          {
+            index: 2,
+            type: 'FILL_BLANK',
+            question: 'Redis 默认监听的 TCP 端口号是____',
+            options: [],
+            category: 'Redis',
+          },
+        ],
+        answers: {},
+        startedAt: '2026-11-18T09:05:00',
+        deadlineAt: '2026-11-18T09:20:00',
+        remainingSeconds: 900,
+        watermarkText: '李华 · #602',
+        proctorAwayReminder: true,
+      });
+    });
+
+    await page.route('**/api/candidate/applications/602/written-test/answers', route => ok(route, null));
+
+    await page.route('**/api/candidate/applications/602/written-test/submit', async route => {
+      const body = route.request().postDataJSON() as { answers: Record<string, string[]> };
+      submittedAnswers = body.answers;
+      writtenStatus = 'GRADED';
+      await ok(route, {
+        applicationId: 602,
+        status: 'GRADED',
+        totalQuestions: 3,
+        questions: [],
+        answers: {},
+        startedAt: '2026-11-18T09:05:00',
+        deadlineAt: '2026-11-18T09:20:00',
+        remainingSeconds: null,
+        watermarkText: '李华 · #602',
+        proctorAwayReminder: true,
+      });
+    });
+
+    await page.route('**/api/candidate/applications/602/proctor-events', route => ok(route, null));
+
+    // 1. 候选人进入面试链接，首先看到独立「在线笔试」环节
+    await page.goto('/careers/applications/602/interview');
+    await expect(page.getByTestId('written-intro-card')).toBeVisible();
+    await expect(page.getByText('环节 1 / 2 · 在线笔试')).toBeVisible();
+
+    // 2. 开始笔试，依次作答单选、多选与填空题并交卷
+    await page.getByTestId('start-written-btn').click();
+    await expect(page.getByTestId('written-active-panel')).toBeVisible();
+    await page.getByTestId('written-opt-0-B').click();
+    await page.getByTestId('written-opt-1-A').click();
+    await page.getByTestId('written-opt-1-C').click();
+    await page.getByTestId('written-fill-2').fill('TCP 6379');
+    await page.getByTestId('submit-written-btn').click();
+
+    expect(submittedAnswers).toEqual({
+      '0': ['B'],
+      '1': ['A', 'C'],
+      '2': ['TCP 6379'],
+    });
+
+    // 3. 交卷后自动进入第 2 环节：选择形式开始 AI 面试
+    await expect(page.getByTestId('written-finished-banner')).toBeVisible();
+    await expect(page.getByText('文字问答面试')).toBeVisible();
+    await expect(page.getByText('实时语音面试')).toBeVisible();
+
+    // 4. HR 后台查看笔试逐题判分（含 AI 语义判分标记）与综合加权分
+    await seedAdminAuth(page, 'ADMIN');
+    await page.route('**/api/admin/applications/602', route =>
+      ok(route, {
+        id: 602,
+        status: 'AI_PASSED',
+        candidateId: 88,
+        candidateName: '李华',
+        candidateEmail: 'written@example.com',
+        candidatePhone: null,
+        jobId: 12,
+        jobTitle: '后端研发工程师',
+        aiPassThreshold: 70,
+        screeningThreshold: 60,
+        resumeId: 301,
+        resumeFilename: 'lihua.pdf',
+        resumeText: 'Java 研发经验',
+        screeningScore: 85,
+        screeningResult: null,
+        writtenTest: {
+          status: 'GRADED',
+          score: 100,
+          correctCount: 3,
+          totalCount: 3,
+          weight: 30,
+          startedAt: '2026-11-18T09:05:00',
+          deadlineAt: '2026-11-18T09:20:00',
+          submittedAt: '2026-11-18T09:10:00',
+          gradedAt: '2026-11-18T09:10:02',
+          items: [
+            {
+              index: 0,
+              type: 'SINGLE_CHOICE',
+              question: 'MySQL InnoDB 默认事务隔离级别是什么？',
+              options: ['READ COMMITTED', 'REPEATABLE READ', 'SERIALIZABLE'],
+              correctAnswers: ['B'],
+              explanation: '默认可重复读',
+              category: 'MySQL',
+              candidateAnswer: ['B'],
+              correct: true,
+              judgedBy: 'RULE',
+              reason: null,
+            },
+            {
+              index: 2,
+              type: 'FILL_BLANK',
+              question: 'Redis 默认监听的 TCP 端口号是____',
+              options: [],
+              correctAnswers: ['6379'],
+              explanation: null,
+              category: 'Redis',
+              candidateAnswer: ['TCP 6379'],
+              correct: true,
+              judgedBy: 'AI',
+              reason: '指明默认端口 6379，语义一致',
+            },
+          ],
+        },
+        interviewMode: 'TEXT',
+        interviewSessionId: 'sess-602',
+        voiceSessionId: null,
+        interviewStartedAt: '2026-11-18T09:12:00',
+        interviewCompletedAt: '2026-11-18T09:30:00',
+        aiScore: 86,
+        aiDecision: 'PASS',
+        aiReview: {
+          finalDecision: 'PASS',
+          interviewScore: 80,
+          passThreshold: 70,
+          llm: null,
+          fallback: false,
+          note: null,
+          proctorCounts: {},
+          written: {
+            writtenScore: 100,
+            weight: 30,
+            interviewScore: 80,
+            finalScore: 86,
+            correctCount: 3,
+            totalCount: 3,
+          },
+        },
+        taskError: null,
+        hrReviewerId: null,
+        hrReviewerName: null,
+        hrComment: null,
+        hrReviewedAt: null,
+        proctorCounts: {},
+        proctorEvents: [],
+        logs: [],
+        offlineInterview: null,
+        emails: [],
+        submittedAt: '2026-11-18T09:00:00',
+        inviteExpiresAt: '2026-11-25T09:00:00',
+        updatedAt: '2026-11-18T09:31:00',
+      }),
+    );
+
+    await page.goto('/admin/applications/602');
+    await expect(page.getByTestId('written-weighted-summary')).toContainText('综合分 86 分 = 笔试 100 分 × 30% + 面试 80 分 × 70%');
+    await expect(page.getByTestId('written-detail-card')).toContainText('100 分（答对 3 / 3 题）');
+    await expect(page.getByTestId('written-detail-card')).toContainText('AI 语义判分');
   });
 });

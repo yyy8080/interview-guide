@@ -15,6 +15,8 @@ import interview.guide.modules.job.repository.JobPositionRepository;
 import interview.guide.modules.mail.service.MailOutboxService;
 import interview.guide.modules.mail.service.MailSettingsService;
 import interview.guide.modules.recruitment.model.AiReviewRecord;
+import interview.guide.modules.recruitment.model.AnswerTelemetryDTO;
+import interview.guide.modules.recruitment.model.AnswerTelemetryEntity;
 import interview.guide.modules.recruitment.model.ApplicationDetailDTO;
 import interview.guide.modules.recruitment.model.ApplicationEntity;
 import interview.guide.modules.recruitment.model.ApplicationListItemDTO;
@@ -28,12 +30,22 @@ import interview.guide.modules.recruitment.model.OfflineInterviewDTO;
 import interview.guide.modules.recruitment.model.OfflineInterviewRequest;
 import interview.guide.modules.recruitment.model.OperatorType;
 import interview.guide.modules.recruitment.model.ProctorEventDTO;
+import interview.guide.modules.recruitment.model.ProctorEventEntity;
 import interview.guide.modules.recruitment.model.ProctorEventType;
+import interview.guide.modules.recruitment.model.ProctorRiskAssessment;
+import interview.guide.modules.recruitment.model.ProctorRiskLevel;
 import interview.guide.modules.recruitment.model.ScreeningResult;
+import interview.guide.modules.recruitment.model.WrittenQuestion;
+import interview.guide.modules.recruitment.model.WrittenQuestionResult;
+import interview.guide.modules.recruitment.model.WrittenTestDetailDTO;
+import interview.guide.modules.recruitment.model.WrittenTestEntity;
+import interview.guide.modules.recruitment.model.WrittenTestItemDTO;
+import interview.guide.modules.recruitment.repository.AnswerTelemetryRepository;
 import interview.guide.modules.recruitment.repository.ApplicationRepository;
 import interview.guide.modules.recruitment.repository.ApplicationStatusLogRepository;
 import interview.guide.modules.recruitment.repository.CandidateRepository;
 import interview.guide.modules.recruitment.repository.ProctorEventRepository;
+import interview.guide.modules.recruitment.repository.WrittenTestRepository;
 import interview.guide.modules.resume.model.ResumeEntity;
 import interview.guide.modules.resume.repository.ResumeRepository;
 import java.time.LocalDateTime;
@@ -73,6 +85,10 @@ public class AdminApplicationService {
   private final JobPositionRepository jobPositionRepository;
   private final ResumeRepository resumeRepository;
   private final ProctorEventRepository proctorEventRepository;
+  private final AnswerTelemetryRepository answerTelemetryRepository;
+  private final WrittenTestRepository writtenTestRepository;
+  private final WrittenTestCodec writtenTestCodec;
+  private final ProctorRiskService proctorRiskService;
   private final ApplicationStatusLogRepository statusLogRepository;
   private final InterviewScheduleRepository scheduleRepository;
   private final AdminUserRepository adminUserRepository;
@@ -92,12 +108,22 @@ public class AdminApplicationService {
   @Transactional(readOnly = true)
   public PageResult<ApplicationListItemDTO> list(Long jobId, Collection<ApplicationStatus> statuses, String keyword,
                                                  int page, int size) {
+    return list(jobId, statuses, null, keyword, page, size);
+  }
+
+  @Transactional(readOnly = true)
+  public PageResult<ApplicationListItemDTO> list(Long jobId, Collection<ApplicationStatus> statuses,
+                                                 Collection<ProctorRiskLevel> riskLevels, String keyword,
+                                                 int page, int size) {
+    boolean allRiskLevels = riskLevels == null || riskLevels.isEmpty();
+    Collection<ProctorRiskLevel> riskFilter = allRiskLevels ? EnumSet.allOf(ProctorRiskLevel.class) : riskLevels;
     boolean allStatuses = statuses == null || statuses.isEmpty();
     Collection<ApplicationStatus> filter = allStatuses ? EnumSet.allOf(ApplicationStatus.class) : statuses;
     String pattern = "%" + (keyword == null ? "" : keyword.trim().toLowerCase()) + "%";
     PageRequest pageable = PageRequest.of(Math.max(page, 1) - 1, Math.min(Math.max(size, 1), MAX_PAGE_SIZE),
         Sort.by(Sort.Direction.DESC, "submittedAt").and(Sort.by(Sort.Direction.DESC, "id")));
-    Page<ApplicationEntity> result = applicationRepository.search(jobId, allStatuses, filter, pattern, pageable);
+    Page<ApplicationEntity> result = applicationRepository.search(jobId, allStatuses, filter, allRiskLevels,
+        riskFilter, pattern, pageable);
 
     Map<Long, CandidateEntity> candidates = candidateRepository.findAllById(
             result.getContent().stream().map(ApplicationEntity::getCandidateId).distinct().toList())
@@ -112,7 +138,8 @@ public class AdminApplicationService {
       return new ApplicationListItemDTO(
           app.getId(), app.getJobId(), job != null ? job.getTitle() : "（岗位已删除）",
           app.getCandidateName(), candidate != null ? candidate.getEmail() : null, app.getCandidatePhone(),
-          app.getStatus(), app.getInterviewMode(), app.getScreeningScore(), app.getAiScore(), app.getAiDecision(),
+          app.getStatus(), app.getInterviewMode(), app.getScreeningScore(), app.getWrittenScore(), app.getAiScore(),
+          app.getAiDecision(), app.getProctorRiskScore(), app.getProctorRiskLevel(),
           app.getSubmittedAt(), app.getUpdatedAt());
     });
   }
@@ -126,8 +153,20 @@ public class AdminApplicationService {
 
     Map<ProctorEventType, Long> proctorCounts = new EnumMap<>(ProctorEventType.class);
     proctorEventRepository.countByType(id).forEach(c -> proctorCounts.put(c.getEventType(), c.getTotal()));
-    List<ProctorEventDTO> proctorEvents = proctorEventRepository.findByApplicationIdOrderByOccurredAtAsc(id).stream()
-        .map(e -> new ProctorEventDTO(e.getId(), e.getEventType(), e.getDetail(), e.getOccurredAt()))
+    List<ProctorEventEntity> eventEntities = proctorEventRepository.findByApplicationIdOrderByOccurredAtAsc(id);
+    List<ProctorEventDTO> proctorEvents = eventEntities.stream()
+        .map(e -> new ProctorEventDTO(e.getId(), e.getEventType(), e.getDetail(), e.getDurationMs(),
+            e.getQuestionIndex(), e.getChars(), e.getOccurredAt()))
+        .toList();
+    List<AnswerTelemetryEntity> telemetryEntities = answerTelemetryRepository.findByApplicationIdOrderByQuestionIndexAsc(id);
+    // 实时计算（面试进行中也可查看）；列表展示使用交卷时落库的结果
+    ProctorRiskAssessment proctorRisk = proctorRiskService.assess(eventEntities, telemetryEntities);
+    Set<Integer> flaggedQuestions = new HashSet<>(proctorRisk.flaggedQuestions());
+    List<AnswerTelemetryDTO> answerTelemetry = telemetryEntities.stream()
+        .map(t -> new AnswerTelemetryDTO(t.getQuestionIndex(), t.getDurationMs(), t.getFirstInputMs(),
+            t.getTypedChars(), t.getPastedChars(), t.getMaxBurstChars(), t.getAwayMs(), t.getAnswerChars(),
+            ProctorRiskCalculator.pasteRatio(t.getTypedChars(), t.getPastedChars()),
+            flaggedQuestions.contains(t.getQuestionIndex())))
         .toList();
 
     var logEntities = statusLogRepository.findByApplicationIdOrderByCreatedAtAscIdAsc(id);
@@ -148,6 +187,11 @@ public class AdminApplicationService {
     OfflineInterviewDTO offline = scheduleRepository.findByApplicationId(id).map(AdminApplicationService::toOffline)
         .orElse(null);
 
+    AiReviewRecord aiReview = parse(app.getAiResultJson(), AiReviewRecord.class);
+    WrittenTestDetailDTO writtenDetail = writtenTestRepository.findByApplicationId(id)
+        .map(test -> toWrittenDetail(test, job, aiReview))
+        .orElse(null);
+
     return new ApplicationDetailDTO(
         app.getId(), app.getStatus(),
         app.getCandidateId(), app.getCandidateName(), candidate != null ? candidate.getEmail() : null,
@@ -157,14 +201,36 @@ public class AdminApplicationService {
         app.getResumeId(), resume != null ? resume.getOriginalFilename() : null,
         resume != null ? resume.getResumeText() : null,
         app.getScreeningScore(), parse(app.getScreeningResultJson(), ScreeningResult.class),
+        writtenDetail,
         app.getInterviewMode(), app.getInterviewSessionId(), app.getVoiceSessionId(),
         app.getInterviewStartedAt(), app.getInterviewCompletedAt(),
-        app.getAiScore(), app.getAiDecision(), parse(app.getAiResultJson(), AiReviewRecord.class), app.getTaskError(),
+        app.getAiScore(), app.getAiDecision(), aiReview, app.getTaskError(),
         app.getHrReviewerId(), app.getHrReviewerId() != null ? adminNames.get(app.getHrReviewerId()) : null,
         app.getHrComment(), app.getHrReviewedAt(),
-        proctorCounts, proctorEvents, logs, offline,
+        proctorCounts, proctorEvents, proctorRisk, answerTelemetry, logs, offline,
         mailOutboxService.listByApplication(id),
         app.getSubmittedAt(), app.getInviteExpiresAt(), app.getUpdatedAt());
+  }
+
+  private WrittenTestDetailDTO toWrittenDetail(WrittenTestEntity test, JobPositionEntity job, AiReviewRecord aiReview) {
+    List<WrittenQuestion> questions = writtenTestCodec.readQuestions(test.getQuestionsJson());
+    Map<Integer, List<String>> answers = writtenTestCodec.readAnswers(test.getAnswersJson());
+    Map<Integer, WrittenQuestionResult> results = writtenTestCodec.readResults(test.getResultsJson()).stream()
+        .collect(Collectors.toMap(WrittenQuestionResult::index, Function.identity(), (a, b) -> b));
+    List<WrittenTestItemDTO> items = questions.stream().map(q -> {
+      WrittenQuestionResult r = results.get(q.index());
+      List<String> candidateAnswer = r != null && r.answer() != null
+          ? r.answer() : answers.getOrDefault(q.index(), List.of());
+      return new WrittenTestItemDTO(q.index(), q.type(), q.question(), q.options(), q.answers(),
+          q.explanation(), q.category(), candidateAnswer, r != null ? r.correct() : null,
+          r != null ? r.judgedBy() : null, r != null ? r.reason() : null);
+    }).toList();
+    int weight = aiReview != null && aiReview.written() != null
+        ? aiReview.written().weight()
+        : (job != null ? job.getWrittenWeight() : 30);
+    return new WrittenTestDetailDTO(test.getStatus(), test.getScore(), test.getCorrectCount(),
+        test.getTotalCount(), weight, test.getStartedAt(), test.getDeadlineAt(), test.getSubmittedAt(),
+        test.getGradedAt(), items);
   }
 
   @Transactional(readOnly = true)

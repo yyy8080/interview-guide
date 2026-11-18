@@ -13,8 +13,11 @@ public record ApplicationListItemDTO(
     ApplicationStatus status,
     InterviewMode interviewMode,
     Integer screeningScore,
+    Integer writtenScore,
     Integer aiScore,
     AiDecision aiDecision,
+    Integer proctorRiskScore,
+    ProctorRiskLevel proctorRiskLevel,
     LocalDateTime submittedAt,
     LocalDateTime updatedAt
 ) {

@@ -7,6 +7,7 @@ import interview.guide.modules.recruitment.model.ApplicationDetailDTO;
 import interview.guide.modules.recruitment.model.ApplicationListItemDTO;
 import interview.guide.modules.recruitment.model.ApplicationStatsDTO;
 import interview.guide.modules.recruitment.model.ApplicationStatus;
+import interview.guide.modules.recruitment.model.ProctorRiskLevel;
 import interview.guide.modules.recruitment.model.BatchReviewRequest;
 import interview.guide.modules.recruitment.model.BatchReviewResult;
 import interview.guide.modules.recruitment.model.HrReviewRequest;
@@ -42,10 +43,11 @@ public class AdminApplicationController {
   public Result<PageResult<ApplicationListItemDTO>> list(
       @RequestParam(required = false) Long jobId,
       @RequestParam(required = false) List<ApplicationStatus> statuses,
+      @RequestParam(required = false) List<ProctorRiskLevel> riskLevels,
       @RequestParam(required = false) String keyword,
       @RequestParam(defaultValue = "1") int page,
       @RequestParam(defaultValue = "20") int size) {
-    return Result.success(applicationService.list(jobId, statuses, keyword, page, size));
+    return Result.success(applicationService.list(jobId, statuses, riskLevels, keyword, page, size));
   }
 
   @GetMapping("/stats")

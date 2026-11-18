@@ -203,8 +203,33 @@ public class JobPositionService {
     entity.setSalaryRange(blankToNull(request.salaryRange()));
     entity.setLlmProvider(blankToNull(request.llmProvider()));
     entity.setScreeningEnabled(Boolean.TRUE.equals(request.screeningEnabled()));
+    // 防作弊开关缺省开启（旧客户端未传时保持默认）
+    entity.setProctorAwayReminder(!Boolean.FALSE.equals(request.proctorAwayReminder()));
+    entity.setProctorWatermark(!Boolean.FALSE.equals(request.proctorWatermark()));
+    // 笔试配置：未传的字段保留实体当前值（新建时为默认值）
+    if (request.writtenTestEnabled() != null) {
+      entity.setWrittenTestEnabled(request.writtenTestEnabled());
+    }
+    if (request.writtenSingleCount() != null) {
+      entity.setWrittenSingleCount(request.writtenSingleCount());
+    }
+    if (request.writtenMultiCount() != null) {
+      entity.setWrittenMultiCount(request.writtenMultiCount());
+    }
+    if (request.writtenFillCount() != null) {
+      entity.setWrittenFillCount(request.writtenFillCount());
+    }
+    if (request.writtenTimeLimitMinutes() != null) {
+      entity.setWrittenTimeLimitMinutes(request.writtenTimeLimitMinutes());
+    }
+    if (request.writtenWeight() != null) {
+      entity.setWrittenWeight(request.writtenWeight());
+    }
     entity.setCategoriesJson(writeCategories(request.categories()));
   }
+
+  /** 笔试单份题量上限，避免 LLM 单次生成过长 */
+  static final int MAX_WRITTEN_QUESTIONS = 30;
 
   private void validateConfig(JobPositionRequest request) {
     if (!InterviewSkillService.CUSTOM_SKILL_ID.equals(request.skillId())) {
@@ -217,6 +242,19 @@ public class JobPositionService {
     if (request.knowledgeBaseId() != null && !knowledgeBaseRepository.existsById(request.knowledgeBaseId())) {
       throw new BusinessException(ErrorCode.KNOWLEDGE_BASE_NOT_FOUND, "绑定的知识库题库不存在");
     }
+    if (Boolean.TRUE.equals(request.writtenTestEnabled())) {
+      int total = nz(request.writtenSingleCount()) + nz(request.writtenMultiCount()) + nz(request.writtenFillCount());
+      if (total <= 0) {
+        throw new BusinessException(ErrorCode.JOB_CONFIG_INVALID, "启用笔试时至少需要 1 道选择题或填空题");
+      }
+      if (total > MAX_WRITTEN_QUESTIONS) {
+        throw new BusinessException(ErrorCode.JOB_CONFIG_INVALID, "笔试题目总数不能超过 " + MAX_WRITTEN_QUESTIONS + " 题");
+      }
+    }
+  }
+
+  private static int nz(Integer value) {
+    return value == null ? 0 : value;
   }
 
   private void validatePublishable(JobPositionEntity entity) {

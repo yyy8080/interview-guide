@@ -23,6 +23,8 @@ import interview.guide.modules.job.model.InterviewMode;
 import interview.guide.modules.job.model.JobPositionEntity;
 import interview.guide.modules.job.service.JobPositionService;
 import interview.guide.modules.knowledgebase.service.KnowledgeBaseInterviewService;
+import interview.guide.modules.recruitment.model.AnswerTelemetry;
+import interview.guide.modules.recruitment.model.AnswerTelemetryEntity;
 import interview.guide.modules.recruitment.model.ApplicationEntity;
 import interview.guide.modules.recruitment.model.ApplicationStatus;
 import interview.guide.modules.recruitment.model.CandidateAnswerRequest;
@@ -30,6 +32,7 @@ import interview.guide.modules.recruitment.model.CandidateAnswerResponse;
 import interview.guide.modules.recruitment.model.CandidateInterviewDTO;
 import interview.guide.modules.recruitment.model.CandidateQuestionDTO;
 import interview.guide.modules.recruitment.model.OperatorType;
+import interview.guide.modules.recruitment.repository.AnswerTelemetryRepository;
 import interview.guide.modules.recruitment.repository.ApplicationRepository;
 import interview.guide.modules.recruitment.repository.ProctorEventRepository;
 import interview.guide.modules.resume.repository.ResumeRepository;
@@ -44,6 +47,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -59,6 +63,12 @@ class CandidateInterviewServiceTest {
 
   @Mock
   private ResumeRepository resumeRepository;
+
+  @Mock
+  private AnswerTelemetryRepository answerTelemetryRepository;
+
+  @Mock
+  private interview.guide.modules.recruitment.repository.WrittenTestRepository writtenTestRepository;
 
   @Mock
   private JobPositionService jobPositionService;
@@ -92,9 +102,9 @@ class CandidateInterviewServiceTest {
   @BeforeEach
   void setUp() {
     service = new CandidateInterviewService(
-        applicationRepository, proctorEventRepository, resumeRepository, jobPositionService,
-        interviewSessionService, knowledgeBaseInterviewService, voiceInterviewService,
-        stateMachine, workflowService, candidateAuthService, transactionalExecutor,
+        applicationRepository, proctorEventRepository, answerTelemetryRepository, writtenTestRepository,
+        resumeRepository, jobPositionService, interviewSessionService, knowledgeBaseInterviewService,
+        voiceInterviewService, stateMachine, workflowService, candidateAuthService, transactionalExecutor,
         redisService, new RecruitmentProperties());
   }
 
@@ -218,6 +228,43 @@ class CandidateInterviewServiceTest {
   }
 
   @Test
+  @DisplayName("提交答案时随附的作答遥测按题保存（含答案字数），遥测保存失败不影响作答")
+  void savesAnswerTelemetryWithAnswer() {
+    ApplicationEntity app = new ApplicationEntity();
+    app.setId(103L);
+    app.setCandidateId(10L);
+    app.setStatus(ApplicationStatus.INTERVIEWING);
+    app.setInterviewMode(InterviewMode.TEXT);
+    app.setInterviewSessionId("sess-103");
+    app.setInterviewDeadlineAt(LocalDateTime.now().plusMinutes(20));
+
+    when(applicationRepository.findByIdAndCandidateId(103L, 10L)).thenReturn(Optional.of(app));
+    when(interviewSessionService.submitAnswer(any()))
+        .thenReturn(new SubmitAnswerResponse(true, null, 2, 5));
+    when(answerTelemetryRepository.findByApplicationIdAndQuestionIndex(103L, 1)).thenReturn(Optional.empty());
+
+    AnswerTelemetry telemetry = new AnswerTelemetry(90_000L, 4_000L, 20, 180, 0, 35_000L);
+    CandidateAnswerResponse response =
+        service.answer(10L, 103L, new CandidateAnswerRequest(1, "  幂等键 + 唯一索引  ", telemetry));
+
+    assertThat(response.finished()).isFalse();
+    ArgumentCaptor<AnswerTelemetryEntity> captor = ArgumentCaptor.forClass(AnswerTelemetryEntity.class);
+    verify(answerTelemetryRepository).save(captor.capture());
+    AnswerTelemetryEntity saved = captor.getValue();
+    assertThat(saved.getApplicationId()).isEqualTo(103L);
+    assertThat(saved.getQuestionIndex()).isEqualTo(1);
+    assertThat(saved.getPastedChars()).isEqualTo(180);
+    assertThat(saved.getAwayMs()).isEqualTo(35_000L);
+    assertThat(saved.getAnswerChars()).isEqualTo("幂等键 + 唯一索引".length());
+
+    when(answerTelemetryRepository.findByApplicationIdAndQuestionIndex(103L, 2))
+        .thenThrow(new IllegalStateException("db down"));
+    CandidateAnswerResponse second =
+        service.answer(10L, 103L, new CandidateAnswerRequest(2, "答案", telemetry));
+    assertThat(second.finished()).isFalse();
+  }
+
+  @Test
   @DisplayName("语音 WebSocket 握手严格校验令牌归属与 INTERVIEWING 状态")
   void verifiesVoiceHandshakeOwnershipAndStatus() {
     ApplicationEntity app = new ApplicationEntity();
@@ -236,5 +283,47 @@ class CandidateInterviewServiceTest {
 
     app.setStatus(ApplicationStatus.AI_REVIEWING);
     assertThat(service.canAccessVoice("valid-token", 900L)).isFalse();
+  }
+
+  @Test
+  @DisplayName("岗位启用在线笔试时，笔试未完成前禁止开始面试；笔试作答期间正常记录防作弊事件")
+  void gatesInterviewUntilWrittenCompletedAndRecordsProctorDuringWritten() {
+    ApplicationEntity app = new ApplicationEntity();
+    app.setId(105L);
+    app.setCandidateId(10L);
+    app.setJobId(9L);
+    app.setStatus(ApplicationStatus.INTERVIEW_INVITED);
+    app.setInviteExpiresAt(LocalDateTime.now().plusDays(2));
+
+    JobPositionEntity job = new JobPositionEntity();
+    job.setId(9L);
+    job.setInterviewMode(InterviewMode.TEXT);
+    job.setWrittenTestEnabled(true);
+
+    when(applicationRepository.findByIdAndCandidateId(105L, 10L)).thenReturn(Optional.of(app));
+    when(redisService.executeWithLock(any(), anyLong(), anyLong(), any(), any()))
+        .thenAnswer(inv -> ((RedisService.LockedOperation<?>) inv.getArgument(4)).execute());
+    when(jobPositionService.getEntity(9L)).thenReturn(job);
+    when(writtenTestRepository.findByApplicationId(105L)).thenReturn(Optional.empty());
+
+    assertThatThrownBy(() -> service.start(10L, 105L, InterviewMode.TEXT))
+        .isInstanceOf(BusinessException.class)
+        .extracting(ex -> ((BusinessException) ex).getCode())
+        .isEqualTo(ErrorCode.INTERVIEW_NOT_AVAILABLE.getCode());
+
+    var inProgress = new interview.guide.modules.recruitment.model.WrittenTestEntity();
+    inProgress.setApplicationId(105L);
+    inProgress.setStatus(interview.guide.modules.recruitment.model.WrittenTestStatus.IN_PROGRESS);
+    when(writtenTestRepository.findByApplicationId(105L)).thenReturn(Optional.of(inProgress));
+
+    assertThatThrownBy(() -> service.start(10L, 105L, InterviewMode.TEXT))
+        .isInstanceOf(BusinessException.class)
+        .hasMessageContaining("笔试");
+
+    when(writtenTestRepository.existsByApplicationIdAndStatus(
+        105L, interview.guide.modules.recruitment.model.WrittenTestStatus.IN_PROGRESS)).thenReturn(true);
+    service.recordProctor(10L, 105L, new interview.guide.modules.recruitment.model.ProctorEventRequest(
+        interview.guide.modules.recruitment.model.ProctorEventType.TAB_HIDDEN, "笔试", 5_000L, 2, null));
+    verify(proctorEventRepository).save(any());
   }
 }

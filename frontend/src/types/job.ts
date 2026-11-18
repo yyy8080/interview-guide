@@ -26,6 +26,14 @@ export interface JobPosition {
   screeningEnabled: boolean;
   screeningThreshold: number | null;
   aiPassThreshold: number;
+  proctorAwayReminder?: boolean;
+  proctorWatermark?: boolean;
+  writtenTestEnabled?: boolean;
+  writtenSingleCount?: number;
+  writtenMultiCount?: number;
+  writtenFillCount?: number;
+  writtenTimeLimitMinutes?: number;
+  writtenWeight?: number;
   status: JobStatus;
   deadline: string | null;
   publishedAt: string | null;
@@ -54,6 +62,14 @@ export interface JobPositionRequest {
   screeningThreshold?: number | null;
   aiPassThreshold: number;
   deadline?: string | null;
+  proctorAwayReminder?: boolean;
+  proctorWatermark?: boolean;
+  writtenTestEnabled?: boolean;
+  writtenSingleCount?: number;
+  writtenMultiCount?: number;
+  writtenFillCount?: number;
+  writtenTimeLimitMinutes?: number;
+  writtenWeight?: number;
 }
 
 export interface PublicJob {

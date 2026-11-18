@@ -7,11 +7,13 @@ import type {
   BatchReviewResult,
   OfflineInterviewRequest,
   PageResult,
+  ProctorRiskLevel,
 } from '../types/recruitment';
 
 export interface ApplicationListParams {
   jobId?: number;
   statuses?: ApplicationStatus[];
+  riskLevels?: ProctorRiskLevel[];
   keyword?: string;
   page?: number;
   size?: number;
@@ -25,6 +27,9 @@ export const applicationApi = {
     }
     if (params.statuses && params.statuses.length > 0) {
       params.statuses.forEach(s => query.append('statuses', s));
+    }
+    if (params.riskLevels && params.riskLevels.length > 0) {
+      params.riskLevels.forEach(r => query.append('riskLevels', r));
     }
     if (params.keyword) {
       query.set('keyword', params.keyword);

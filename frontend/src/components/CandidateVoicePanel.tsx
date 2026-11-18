@@ -1,10 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import type { ClipboardEvent as ReactClipboardEvent } from 'react';
 import { Loader2, PhoneOff, Send, Volume2 } from 'lucide-react';
 import { API_BASE_URL } from '../api/request';
 import { VoiceInterviewWebSocket } from '../api/voiceInterview';
 import AudioRecorder from './AudioRecorder';
 import { getValidCandidateToken } from '../utils/candidateStorage';
 import { buildVoiceWebSocketUrl } from '../utils/voiceWebSocketUrl';
+import type { ProctorEventPayload } from '../types/recruitment';
+
+/** 面试官提问结束后超过该时长才开口，记录为应答延迟（单次不计入风险，多次才提示） */
+const SLOW_RESPONSE_MS = 15_000;
 
 interface ChatTurn {
   id: string;
@@ -16,12 +21,15 @@ interface CandidateVoicePanelProps {
   voiceSessionId: number;
   onEndInterview: () => Promise<void>;
   ending: boolean;
+  /** 作答行为上报（无感记录） */
+  onProctor?: (event: ProctorEventPayload) => void;
 }
 
 export default function CandidateVoicePanel({
   voiceSessionId,
   onEndInterview,
   ending,
+  onProctor,
 }: CandidateVoicePanelProps) {
   const [status, setStatus] = useState<'connecting' | 'connected' | 'disconnected'>('connecting');
   const [isRecording, setIsRecording] = useState(false);
@@ -31,6 +39,9 @@ export default function CandidateVoicePanel({
   const [userText, setUserText] = useState('');
   const [messages, setMessages] = useState<ChatTurn[]>([]);
   const [error, setError] = useState<string | null>(null);
+  // 本轮是否已识别到语音：必须开口作答才能提交，文本框仅用于修正识别错别字
+  const [hasHeard, setHasHeard] = useState(false);
+  const [pasteHint, setPasteHint] = useState(false);
 
   const wsRef = useRef<VoiceInterviewWebSocket | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -41,6 +52,12 @@ export default function CandidateVoicePanel({
   const lastCommittedAiRef = useRef('');
   const submittingRef = useRef(false);
   const aiSpeakingRef = useRef(false);
+  const aiFinishedAtRef = useRef<number | null>(null);
+  const onProctorRef = useRef(onProctor);
+
+  useEffect(() => {
+    onProctorRef.current = onProctor;
+  }, [onProctor]);
 
   const setSubmittingSync = useCallback((v: boolean) => {
     submittingRef.current = v;
@@ -48,6 +65,9 @@ export default function CandidateVoicePanel({
   }, []);
 
   const setAiSpeakingSync = useCallback((v: boolean) => {
+    if (aiSpeakingRef.current && !v) {
+      aiFinishedAtRef.current = Date.now();
+    }
     aiSpeakingRef.current = v;
     setAiSpeaking(v);
   }, []);
@@ -142,6 +162,17 @@ export default function CandidateVoicePanel({
         if (!isFinal && (submittingRef.current || aiSpeakingRef.current)) {
           return;
         }
+        if (text.trim() && !isFinal) {
+          setHasHeard(true);
+          const finishedAt = aiFinishedAtRef.current;
+          if (finishedAt != null) {
+            aiFinishedAtRef.current = null;
+            const latency = Date.now() - finishedAt;
+            if (latency >= SLOW_RESPONSE_MS) {
+              onProctorRef.current?.({ type: 'VOICE_SLOW_RESPONSE', durationMs: latency });
+            }
+          }
+        }
         if (isFinal && text.trim()) {
           setMessages(prev => {
             const last = prev[prev.length - 1];
@@ -190,7 +221,10 @@ export default function CandidateVoicePanel({
         }
       },
       onAudioChunk: data => enqueueWavChunk(data),
-      onErrorMessage: msg => setError(msg || '语音服务提示异常'),
+      onErrorMessage: msg => {
+        setError(msg || '语音服务提示异常');
+        setSubmittingSync(false);
+      },
       onClose: () => setStatus('disconnected'),
       onError: () => {
         setStatus('disconnected');
@@ -209,12 +243,22 @@ export default function CandidateVoicePanel({
 
   const handleSendText = () => {
     const trimmed = userText.trim();
-    if (!trimmed || !wsRef.current?.isConnected() || submitting || aiSpeaking) return;
+    if (!trimmed || !hasHeard || !wsRef.current?.isConnected() || submitting || aiSpeaking) return;
     setIsRecording(false);
+    setHasHeard(false);
+    setPasteHint(false);
     setSubmittingSync(true);
     setMessages(prev => [...prev, { id: `u-${Date.now()}`, role: 'user', text: trimmed }]);
     setUserText('');
     wsRef.current.sendControl('submit', { text: trimmed });
+  };
+
+  /** 语音作答框不支持粘贴（语音面试需口头作答），拦截并无感记录 */
+  const handleVoicePaste = (e: ReactClipboardEvent<HTMLTextAreaElement>) => {
+    e.preventDefault();
+    setPasteHint(true);
+    const chars = e.clipboardData?.getData('text')?.length ?? 0;
+    onProctorRef.current?.({ type: 'PASTE', chars, detail: '语音作答框粘贴（已拦截）' });
   };
 
   const handleFinish = async () => {
@@ -314,7 +358,7 @@ export default function CandidateVoicePanel({
             onAudioData={pcmBase64 => wsRef.current?.sendAudio(pcmBase64)}
           />
           <p className="text-xs text-slate-500 dark:text-slate-400">
-            点击麦克风说话，识别出的文字可在下方核对补充，确认无误后点击「发送回答」
+            点击麦克风口头作答，识别出的文字会显示在下方，可修正个别错别字后点击「发送回答」
           </p>
         </div>
 
@@ -323,13 +367,14 @@ export default function CandidateVoicePanel({
             rows={2}
             value={userText}
             onChange={e => setUserText(e.target.value)}
-            disabled={aiSpeaking || submitting}
-            placeholder="语音识别内容将显示在这里，也可直接键盘输入补充…"
+            onPaste={handleVoicePaste}
+            disabled={aiSpeaking || submitting || !hasHeard}
+            placeholder={hasHeard ? '可修正识别错别字…' : '请先点击麦克风说话，识别内容将显示在这里…'}
             className="flex-1 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-sm text-slate-900 focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white"
           />
           <button
             type="button"
-            disabled={!userText.trim() || aiSpeaking || submitting || status !== 'connected'}
+            disabled={!userText.trim() || !hasHeard || aiSpeaking || submitting || status !== 'connected'}
             onClick={handleSendText}
             className="btn-primary flex items-center gap-1.5 self-end rounded-xl px-5 py-2.5 text-sm disabled:opacity-50"
           >
@@ -337,6 +382,9 @@ export default function CandidateVoicePanel({
             发送回答
           </button>
         </div>
+        {pasteHint && (
+          <p className="text-xs text-slate-400">语音面试请口头作答，作答框不支持粘贴。</p>
+        )}
       </div>
     </div>
   );

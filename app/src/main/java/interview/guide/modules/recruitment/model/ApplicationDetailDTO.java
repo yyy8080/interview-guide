@@ -29,6 +29,8 @@ public record ApplicationDetailDTO(
     // AI 初筛
     Integer screeningScore,
     ScreeningResult screeningResult,
+    // 在线笔试
+    WrittenTestDetailDTO writtenTest,
     // 在线面试
     InterviewMode interviewMode,
     String interviewSessionId,
@@ -48,6 +50,8 @@ public record ApplicationDetailDTO(
     // 其他
     Map<ProctorEventType, Long> proctorCounts,
     List<ProctorEventDTO> proctorEvents,
+    ProctorRiskAssessment proctorRisk,
+    List<AnswerTelemetryDTO> answerTelemetry,
     List<ApplicationStatusLogDTO> logs,
     OfflineInterviewDTO offlineInterview,
     List<EmailLogDTO> emails,
