@@ -24,7 +24,7 @@ export default function CareersPage() {
       <div>
         <h1 className="text-2xl font-bold text-slate-900 dark:text-white sm:text-3xl">开放职位</h1>
         <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
-          投递简历后即可在线完成 AI 面试，通过审核后我们会通过邮件邀请你参加线下面试
+          实行受邀面试制：收到面试邀请邮件的候选人可验证受邀邮箱投递对应岗位简历并完成在线 AI 面试（非受邀邮箱不允许投递简历与参加面试）
         </p>
       </div>
 

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { CheckCircle2, KeyRound, Loader2, Mail } from 'lucide-react';
+import { CheckCircle2, KeyRound, Loader2, Mail, ShieldAlert } from 'lucide-react';
 import { candidateAuthApi } from '../../api/candidate';
 import { getErrorMessage } from '../../api/request';
 import { ROUTES } from '../../constants/routes';
@@ -18,13 +18,20 @@ export default function CandidateLoginPage() {
   const [searchParams] = useSearchParams();
   const redirectTarget = resolveRedirect(searchParams.get('redirect'));
 
-  const [email, setEmail] = useState('');
+  const [email, setEmail] = useState(() => searchParams.get('email')?.trim() ?? '');
   const [code, setCode] = useState('');
   const [countdown, setCountdown] = useState(0);
   const [sending, setSending] = useState(false);
   const [verifying, setVerifying] = useState(false);
   const [codeSent, setCodeSent] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const queryEmail = searchParams.get('email')?.trim();
+    if (queryEmail) {
+      setEmail(queryEmail);
+    }
+  }, [searchParams]);
 
   useEffect(() => {
     if (countdown <= 0) return;
@@ -81,10 +88,20 @@ export default function CandidateLoginPage() {
           <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-primary-50 text-primary-600 dark:bg-primary-900/30 dark:text-primary-400">
             <Mail className="h-6 w-6" />
           </div>
-          <h1 className="text-xl font-bold text-slate-900 dark:text-white">候选人邮箱验证</h1>
+          <h1 className="text-xl font-bold text-slate-900 dark:text-white">候选人受邀邮箱验证</h1>
           <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-            无需注册，验证邮箱即可投递简历、参加在线面试与查看进度
+            请使用收到面试邀请邮件的邮箱获取验证码并进入投递或面试
           </p>
+        </div>
+
+        <div
+          data-testid="invite-only-login-tip"
+          className="flex items-start gap-2.5 rounded-xl border border-amber-200/80 bg-amber-50/70 px-3.5 py-2.5 text-xs leading-relaxed text-amber-900 dark:border-amber-800/60 dark:bg-amber-900/20 dark:text-amber-200"
+        >
+          <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+          <span>
+            受邀准入说明：面试仅允许收到邀请的邮箱进入，<strong>非受邀邮箱不允许投递简历与参加面试</strong>。
+          </span>
         </div>
 
         {codeSent && !error && (
@@ -95,7 +112,10 @@ export default function CandidateLoginPage() {
         )}
 
         {error && (
-          <div className="rounded-xl bg-red-50 px-3.5 py-2.5 text-xs text-red-600 dark:bg-red-900/20 dark:text-red-400">
+          <div
+            data-testid="candidate-login-error"
+            className="rounded-xl bg-red-50 px-3.5 py-2.5 text-xs text-red-600 dark:bg-red-900/20 dark:text-red-400"
+          >
             {error}
           </div>
         )}

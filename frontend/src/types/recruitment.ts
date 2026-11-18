@@ -576,3 +576,116 @@ export interface EmailLogItem {
   sentAt: string | null;
   createdAt: string;
 }
+
+// ========== 定向面试邀请与参面状态 ==========
+
+export type InvitationRecordStatus = 'ACTIVE' | 'REVOKED';
+
+export type InvitationParticipationStatus =
+  | 'COMPLETED'
+  | 'IN_INTERVIEW'
+  | 'AWAITING_INTERVIEW'
+  | 'SCREENING'
+  | 'SCREEN_REJECTED'
+  | 'NOT_APPLIED'
+  | 'EXPIRED'
+  | 'REVOKED';
+
+export type InvitationParticipationFilter =
+  | 'PARTICIPATED'
+  | 'PENDING_INTERVIEW'
+  | 'NOT_APPLIED'
+  | 'SCREEN_REJECTED'
+  | 'EXPIRED_OR_REVOKED';
+
+export const INVITATION_PARTICIPATION_LABELS: Record<InvitationParticipationStatus, string> = {
+  COMPLETED: '已参加 · 已完成面试',
+  IN_INTERVIEW: '已参加 · 答题进行中',
+  AWAITING_INTERVIEW: '未参加 · 待开考',
+  SCREENING: '未参加 · 简历初筛中',
+  SCREEN_REJECTED: '未参加 · 初筛未通过',
+  NOT_APPLIED: '未参加 · 尚未投递简历',
+  EXPIRED: '未参加 · 邀请已过期',
+  REVOKED: '已撤销邀请',
+};
+
+export const INVITATION_PARTICIPATION_BADGES: Record<InvitationParticipationStatus, string> = {
+  COMPLETED: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300',
+  IN_INTERVIEW: 'bg-cyan-50 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300',
+  AWAITING_INTERVIEW: 'bg-indigo-50 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300',
+  SCREENING: 'bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300',
+  SCREEN_REJECTED: 'bg-rose-50 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300',
+  NOT_APPLIED: 'bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300',
+  EXPIRED: 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400',
+  REVOKED: 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400',
+};
+
+export interface InvitationListItem {
+  id: number;
+  jobId: number;
+  jobTitle: string;
+  email: string;
+  candidateName: string | null;
+  status: InvitationRecordStatus;
+  skipScreening: boolean;
+  note: string | null;
+  invitedByName: string | null;
+  invitedAt: string;
+  expiresAt: string | null;
+  revokedAt: string | null;
+  sendCount: number;
+  emailStatus: EmailLogStatus | null;
+  emailSentAt: string | null;
+  emailError: string | null;
+  participated: boolean;
+  participationStatus: InvitationParticipationStatus;
+  participationDetail: string;
+  applicationId: number | null;
+  applicationStatus: ApplicationStatus | null;
+  interviewMode: InterviewMode | null;
+  screeningScore: number | null;
+  writtenScore: number | null;
+  aiScore: number | null;
+  submittedAt: string | null;
+  interviewStartedAt: string | null;
+  interviewCompletedAt: string | null;
+}
+
+export interface InvitationStats {
+  total: number;
+  participated: number;
+  pendingInterview: number;
+  notApplied: number;
+  screenRejected: number;
+  expiredOrRevoked: number;
+}
+
+export interface CreateInvitationsRequest {
+  jobId: number;
+  emails?: string[];
+  emailsText?: string;
+  candidateName?: string;
+  expireDays?: number;
+  skipScreening?: boolean;
+  note?: string;
+}
+
+export interface BatchInvitationResult {
+  createdCount: number;
+  resentCount: number;
+  mailEnabled: boolean;
+  invitations: InvitationListItem[];
+  failed: { email: string; message: string }[];
+}
+
+export interface CandidateJobInvitationStatus {
+  inviteOnly: boolean;
+  canApply: boolean;
+  invited: boolean;
+  expired: boolean;
+  revoked: boolean;
+  skipScreening: boolean;
+  expiresAt: string | null;
+  message: string;
+}
+

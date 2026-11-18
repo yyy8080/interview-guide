@@ -4,6 +4,7 @@ import type {
   CandidateAnswerResponse,
   CandidateApplication,
   CandidateInterviewState,
+  CandidateJobInvitationStatus,
   CandidateLoginResponse,
   CandidateProfile,
   CandidateWrittenTest,
@@ -24,6 +25,10 @@ export const candidateAuthApi = {
 export const candidateApi = {
   me(): Promise<CandidateProfile> {
     return request.get('/api/candidate/me');
+  },
+
+  getJobInvitation(jobId: number): Promise<CandidateJobInvitationStatus> {
+    return request.get(`/api/candidate/jobs/${jobId}/invitation`);
   },
 
   apply(params: {

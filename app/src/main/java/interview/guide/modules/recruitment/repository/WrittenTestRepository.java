@@ -3,6 +3,7 @@ package interview.guide.modules.recruitment.repository;
 import interview.guide.modules.recruitment.model.WrittenTestEntity;
 import interview.guide.modules.recruitment.model.WrittenTestStatus;
 import java.time.LocalDateTime;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.data.domain.Pageable;
@@ -17,6 +18,8 @@ import org.springframework.transaction.annotation.Transactional;
 public interface WrittenTestRepository extends JpaRepository<WrittenTestEntity, Long> {
 
   Optional<WrittenTestEntity> findByApplicationId(Long applicationId);
+
+  List<WrittenTestEntity> findByApplicationIdIn(Collection<Long> applicationIds);
 
   boolean existsByApplicationIdAndStatus(Long applicationId, WrittenTestStatus status);
 

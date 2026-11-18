@@ -74,6 +74,9 @@ class CandidateApplicationServiceTest {
   @Mock
   private TransactionalExecutor transactionalExecutor;
 
+  @Mock
+  private RecruitmentInvitationService invitationService;
+
   private final ObjectMapper objectMapper = new ObjectMapper();
 
   private CandidateApplicationService service;
@@ -83,7 +86,7 @@ class CandidateApplicationServiceTest {
     service = new CandidateApplicationService(
         applicationRepository, candidateRepository, jobPositionRepository, scheduleRepository,
         resumeUploadService, resumeRepository, stateMachine, workflowService, transactionalExecutor,
-        objectMapper, new RecruitmentProperties());
+        objectMapper, new RecruitmentProperties(), invitationService);
   }
 
   private JobPositionEntity openJob(boolean screeningEnabled, InterviewMode mode) {
@@ -377,5 +380,22 @@ class CandidateApplicationServiceTest {
         .extracting(ex -> ((BusinessException) ex).getCode())
         .isEqualTo(ErrorCode.APPLICATION_STATUS_INVALID.getCode());
     verify(resumeUploadService, never()).uploadForApplication(thirdFile);
+  }
+
+  @Test
+  @DisplayName("非本岗位受邀邮箱投递简历时直接拒绝且不上传文件")
+  void blocksApplyWhenNotInvitedToJob() {
+    JobPositionEntity job = openJob(true, InterviewMode.BOTH);
+    when(jobPositionRepository.findById(5L)).thenReturn(Optional.of(job));
+    when(candidateRepository.findById(99L)).thenReturn(Optional.of(candidate(99L)));
+    when(invitationService.assertCanApplyAndGet(5L, 99L, true))
+        .thenThrow(new BusinessException(ErrorCode.CANDIDATE_NOT_INVITED, "非受邀邮箱不允许投递简历面试"));
+
+    MockMultipartFile file = new MockMultipartFile("file", "cv.pdf", "application/pdf", "pdf".getBytes());
+    assertThatThrownBy(() -> service.apply(5L, 99L, "张三", "13800138000", true, file, "mid"))
+        .isInstanceOf(BusinessException.class)
+        .extracting(ex -> ((BusinessException) ex).getCode())
+        .isEqualTo(ErrorCode.CANDIDATE_NOT_INVITED.getCode());
+    verify(resumeUploadService, never()).uploadForApplication(any());
   }
 }

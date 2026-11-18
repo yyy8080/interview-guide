@@ -34,6 +34,7 @@ const JobListPage = lazy(() => import('./pages/admin/JobListPage'));
 const JobEditPage = lazy(() => import('./pages/admin/JobEditPage'));
 const ApplicationListPage = lazy(() => import('./pages/admin/ApplicationListPage'));
 const ApplicationDetailPage = lazy(() => import('./pages/admin/ApplicationDetailPage'));
+const InvitationListPage = lazy(() => import('./pages/admin/InvitationListPage'));
 const MailSettingsPage = lazy(() => import('./pages/admin/MailSettingsPage'));
 const AccountPage = lazy(() => import('./pages/admin/AccountPage'));
 
@@ -224,6 +225,7 @@ function App() {
             <Route path={ROUTES.adminDashboard.slice(1)} element={<RequireAuth roles={['ADMIN', 'HR']}><DashboardPage /></RequireAuth>} />
             <Route path={ROUTES.adminApplications.slice(1)} element={<ApplicationListPage />} />
             <Route path={ROUTE_PATTERNS.adminApplicationDetail} element={<ApplicationDetailPage />} />
+            <Route path={ROUTES.adminInvitations.slice(1)} element={<InvitationListPage />} />
             <Route path={ROUTES.adminJobs.slice(1)} element={<JobListPage />} />
             <Route path={ROUTES.adminJobCreate.slice(1)} element={<RequireAuth roles={['ADMIN', 'HR']}><JobEditPage /></RequireAuth>} />
             <Route path={ROUTE_PATTERNS.adminJobEdit} element={<RequireAuth roles={['ADMIN', 'HR']}><JobEditPage /></RequireAuth>} />

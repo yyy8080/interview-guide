@@ -69,6 +69,31 @@ public enum EmailTemplateCode {
           """,
       List.of("candidateName", "jobTitle", "rejectReason")),
 
+  CANDIDATE_INVITATION(
+      "岗位投递与面试邀请",
+      "【{companyName}】诚邀您参加「{jobTitle}」岗位投递与在线面试",
+      """
+          {candidateGreeting}：
+
+          诚邀您参加 {companyName}「{jobTitle}」岗位的简历投递与在线面试考核。
+          本次面试仅对受邀邮箱（{candidateEmail}）开放，非受邀邮箱无法投递简历或进入面试。
+
+          请在 {expireAt} 前点击专属链接完成邮箱验证、投递简历并参加在线面试：
+          {inviteUrl}
+
+          考核形式：{interviewMode}
+          {hrNote}
+
+          【重要诚信须知】
+          1. 请勿乱提交简历：每个岗位提交简历仅有两次机会（首次提交 + 最多 1 次初筛未通过修改重提），简历不允许造假，否则会直接不通过。
+          2. 答题严禁搜题：在线笔试与在线面试答题期间禁止搜题、切屏查资料或借助外部工具代答，后台设有全程提交审查并与简历真实性联动核验。
+
+          {companyName} 招聘团队
+          {contactInfo}
+          """,
+      List.of("candidateGreeting", "candidateEmail", "jobTitle", "inviteUrl", "expireAt",
+          "interviewMode", "hrNote")),
+
   OFFLINE_INVITE(
       "线下面试邀请",
       "【{companyName}】线下面试邀请 - {jobTitle}",

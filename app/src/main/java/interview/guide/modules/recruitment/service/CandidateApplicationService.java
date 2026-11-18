@@ -17,6 +17,7 @@ import interview.guide.modules.recruitment.model.CandidateLevels;
 import interview.guide.modules.recruitment.model.CandidateOfflineDTO;
 import interview.guide.modules.recruitment.model.CandidateScreeningFeedbackDTO;
 import interview.guide.modules.recruitment.model.OperatorType;
+import interview.guide.modules.recruitment.model.RecruitmentInvitationEntity;
 import interview.guide.modules.recruitment.repository.ApplicationRepository;
 import interview.guide.modules.recruitment.repository.CandidateRepository;
 import interview.guide.modules.resume.model.ResumeEntity;
@@ -26,6 +27,7 @@ import java.time.LocalDateTime;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
@@ -59,6 +61,7 @@ public class CandidateApplicationService {
   private final TransactionalExecutor transactionalExecutor;
   private final ObjectMapper objectMapper;
   private final RecruitmentProperties properties;
+  private final RecruitmentInvitationService invitationService;
 
   /**
    * 投递岗位：校验 → 上传解析简历（事务外）→ 事务内创建投递单并进入初筛 / 面试邀请
@@ -69,7 +72,7 @@ public class CandidateApplicationService {
   }
 
   /**
-   * 投递岗位：校验 → 上传解析简历（事务外）→ 事务内创建投递单并进入初筛 / 面试邀请
+   * 投递岗位：校验受邀邮箱与输入 → 上传解析简历（事务外）→ 事务内创建投递单并进入初筛 / 面试邀请
    */
   public CandidateApplicationDTO apply(Long jobId, Long candidateId, String name, String phone, boolean consent,
                                        MultipartFile file, String candidateLevel) {
@@ -92,6 +95,10 @@ public class CandidateApplicationService {
     }
     candidateRepository.findById(candidateId)
         .orElseThrow(() -> new BusinessException(ErrorCode.CANDIDATE_UNAUTHORIZED));
+    Optional<RecruitmentInvitationEntity> invitationOpt =
+        invitationService.assertCanApplyAndGet(jobId, candidateId, true);
+    boolean skipScreening = invitationOpt != null
+        && invitationOpt.map(RecruitmentInvitationEntity::isSkipScreening).orElse(false);
     if (applicationRepository.existsByJobIdAndCandidateId(jobId, candidateId)) {
       throw new BusinessException(ErrorCode.APPLICATION_DUPLICATE);
     }
@@ -102,7 +109,7 @@ public class CandidateApplicationService {
     ApplicationEntity saved;
     try {
       saved = transactionalExecutor.call(() -> createApplication(job, candidateId, candidateName, candidatePhone,
-          resolvedLevel, resume.getId()));
+          resolvedLevel, resume.getId(), skipScreening));
     } catch (DataIntegrityViolationException e) {
       discardResume(resume);
       throw new BusinessException(ErrorCode.APPLICATION_DUPLICATE);
@@ -126,7 +133,7 @@ public class CandidateApplicationService {
   }
 
   private ApplicationEntity createApplication(JobPositionEntity job, Long candidateId, String name, String phone,
-                                              String candidateLevel, Long resumeId) {
+                                              String candidateLevel, Long resumeId, boolean skipScreening) {
     LocalDateTime now = LocalDateTime.now();
     ApplicationEntity application = new ApplicationEntity();
     application.setJobId(job.getId());
@@ -141,14 +148,16 @@ public class CandidateApplicationService {
     ApplicationEntity saved = applicationRepository.saveAndFlush(application);
     stateMachine.initialize(saved, "候选人投递简历（自选定位：" + CandidateLevels.label(candidateLevel) + "）");
 
-    // 同步候选人资料（最近一次投递填写的信息）
+    // 同步候选人资料与定向邀请关联
     candidateRepository.findById(candidateId).ifPresent(candidate -> updateProfile(candidate, name, phone));
+    invitationService.linkApplication(job.getId(), candidateId, saved.getId(), name);
 
-    if (job.isScreeningEnabled()) {
+    if (job.isScreeningEnabled() && !skipScreening) {
       saved.setTaskUpdatedAt(now);
       stateMachine.transit(saved, ApplicationStatus.SCREENING, OperatorType.SYSTEM, null, "进入 AI 简历初筛");
     } else {
-      workflowService.invite(saved, OperatorType.SYSTEM, null, "岗位未开启初筛，直接进入在线面试");
+      String remark = skipScreening ? "定向受邀免初筛，直接进入在线面试" : "岗位未开启初筛，直接进入在线面试";
+      workflowService.invite(saved, OperatorType.SYSTEM, null, remark);
     }
     return saved;
   }
@@ -203,12 +212,16 @@ public class CandidateApplicationService {
     if (!job.isAcceptingApplications(LocalDateTime.now())) {
       throw new BusinessException(ErrorCode.JOB_NOT_ACCEPTING, "该岗位已停止接收投递，无法重新提交简历");
     }
+    Optional<RecruitmentInvitationEntity> invitationOpt =
+        invitationService.assertCanApplyAndGet(job.getId(), candidateId, false);
+    boolean skipScreening = invitationOpt != null
+        && invitationOpt.map(RecruitmentInvitationEntity::isSkipScreening).orElse(false);
 
     ResumeEntity newResume = resumeUploadService.uploadForApplication(file);
     ApplicationEntity updated;
     try {
       updated = transactionalExecutor.call(() -> doResubmit(candidateId, applicationId, job, newResume.getId(),
-          normalizedLevel, maxRevisions));
+          normalizedLevel, maxRevisions, skipScreening));
     } catch (RuntimeException e) {
       discardResume(newResume);
       throw e;
@@ -219,7 +232,8 @@ public class CandidateApplicationService {
   }
 
   private ApplicationEntity doResubmit(Long candidateId, Long applicationId, JobPositionEntity job,
-                                       Long newResumeId, String normalizedLevel, int maxRevisions) {
+                                       Long newResumeId, String normalizedLevel, int maxRevisions,
+                                       boolean skipScreening) {
     ApplicationEntity locked = applicationRepository.findByIdForUpdate(applicationId)
         .filter(app -> app.getCandidateId().equals(candidateId))
         .orElseThrow(() -> new BusinessException(ErrorCode.APPLICATION_NOT_FOUND));
@@ -242,14 +256,14 @@ public class CandidateApplicationService {
     locked.setDecidedAt(null);
     locked.finishTask();
 
-    if (job.isScreeningEnabled()) {
+    if (job.isScreeningEnabled() && !skipScreening) {
       locked.setTaskUpdatedAt(LocalDateTime.now());
       stateMachine.transit(locked, ApplicationStatus.SCREENING, OperatorType.CANDIDATE, candidateId,
           "候选人修改并重新提交简历（第 " + nextCount + "/" + maxRevisions
               + " 次修改，定位：" + CandidateLevels.label(resolvedLevel) + "），重新进入 AI 简历初筛");
     } else {
       workflowService.invite(locked, OperatorType.CANDIDATE, candidateId,
-          "候选人重新提交简历（第 " + nextCount + " 次修改），岗位未开启初筛直接进入在线面试");
+          "候选人重新提交简历（第 " + nextCount + " 次修改），直接进入在线面试");
     }
     return locked;
   }

@@ -95,6 +95,19 @@ test.describe('企业招聘全流程（候选人门户 + HR 后台审核与邮�
           : null,
     });
 
+    await page.route('**/api/candidate/jobs/9/invitation', route =>
+      ok(route, {
+        inviteOnly: true,
+        canApply: true,
+        invited: true,
+        expired: false,
+        revoked: false,
+        skipScreening: false,
+        expiresAt: '2026-12-31T23:59:59',
+        message: '已获本岗位面试邀请',
+      }),
+    );
+
     await page.route('**/api/candidate/jobs/9/apply', route => {
       capturedCandidateToken = route.request().headers()['x-candidate-token'];
       const postBody = route.request().postData() ?? '';
@@ -201,18 +214,22 @@ test.describe('企业招聘全流程（候选人门户 + HR 后台审核与邮�
     await expect(page.getByRole('heading', { name: '开放职位' })).toBeVisible();
     await page.getByText('高级 Java 后端工程师').click();
 
-    // 2. 未登录提示邮箱验证 → 完成 OTP 登录并跳回岗位页
-    await page.getByRole('link', { name: '验证邮箱并投递' }).click();
-    await expect(page.getByRole('heading', { name: '候选人邮箱验证' })).toBeVisible();
+    // 2. 未登录提示受邀邮箱验证 → 完成 OTP 登录并跳回岗位页
+    await page.getByRole('link', { name: '验证受邀邮箱并投递' }).click();
+    await expect(page.getByRole('heading', { name: '候选人受邀邮箱验证' })).toBeVisible();
+    await expect(page.getByTestId('invite-only-login-tip')).toContainText('非受邀邮箱不允许投递简历与参加面试');
     await page.getByPlaceholder('name@example.com').fill('candidate@example.com');
     await page.getByRole('button', { name: '获取验证码' }).click();
     await expect(page.getByText('验证码已发送至您的邮箱')).toBeVisible();
     await page.getByPlaceholder('请输入验证码').fill('886622');
     await page.getByRole('button', { name: '验证并继续' }).click();
 
-    // 3. 填写信息、自主选择「高级」应聘定位、上传简历并勾选同意后提交
+    // 3. 填写信息、自主选择「高级」应聘定位、查看提交前诚信警示并完成二次确认提交
     await expect(page.getByText('当前验证邮箱：candidate@example.com')).toBeVisible();
+    await expect(page.getByText('已获本岗位面试邀请')).toBeVisible();
     await expect(page.getByText('建议定位：中级')).toBeVisible();
+    await expect(page.getByTestId('resume-submit-warning')).toContainText('请勿乱提交简历，提交简历仅有两次机会');
+    await expect(page.getByTestId('resume-submit-warning')).toContainText('简历不允许造假，否则会直接不通过');
     await page.getByPlaceholder('请输入真实姓名').fill('王小明');
     await page.getByPlaceholder('便于 HR 联系线下面试').fill('13912345678');
     await page.getByTestId('apply-level-senior').click();
@@ -223,6 +240,7 @@ test.describe('企业招聘全流程（候选人门户 + HR 后台审核与邮�
     });
     await page.locator('input[type="checkbox"]').check();
     await page.getByRole('button', { name: '提交简历' }).click();
+    await page.getByTestId('confirm-apply-dialog-btn').click();
 
     // 4. 跳转我的投递（默认开启初筛 → 简历筛选中），确认携带 X-Candidate-Token 与自选定位徽章
     await expect(page.getByRole('heading', { name: '我的投递' })).toBeVisible();
@@ -230,14 +248,17 @@ test.describe('企业招聘全流程（候选人门户 + HR 后台审核与邮�
     await expect(page.getByTestId('my-app-level-501')).toContainText('定位：高级');
     expect(capturedCandidateToken).toBe('cand-jwt-token-001');
 
-    // 5. 模拟 AI 初筛通过后刷新 → 进入在线面试并同时展示定位与文字/语音自选卡片
+    // 5. 模拟 AI 初筛通过后刷新 → 进入在线面试并查看答题前严禁搜题提示与二次确认
     stage = 'INTERVIEW_PENDING';
     await page.getByRole('button', { name: '刷新进度' }).click();
     await page.getByRole('link', { name: '开始在线面试' }).click();
     await expect(page.getByTestId('interview-level-senior')).toHaveAttribute('aria-pressed', 'true');
     await expect(page.getByText('文字问答面试')).toBeVisible();
     await expect(page.getByText('实时语音面试')).toBeVisible();
-    await page.getByRole('button', { name: '开始在线面试' }).click();
+    await expect(page.getByTestId('interview-anti-cheat-warning')).toContainText('答题时禁止搜题');
+    await expect(page.getByTestId('interview-anti-cheat-warning')).toContainText('后台会有提交审查');
+    await page.getByTestId('start-interview-btn').click();
+    await page.getByTestId('confirm-start-interview-btn').click();
 
     // 6. 回答两道脱敏题目完成在线面试
     await expect(page.getByTestId('interview-active-level')).toContainText('定位：高级');
@@ -668,14 +689,17 @@ test.describe('企业招聘全流程（候选人门户 + HR 后台审核与邮�
 
     await page.route('**/api/candidate/applications/602/proctor-events', route => ok(route, null));
 
-    // 1. 候选人进入面试链接，首先看到独立「在线笔试」环节与定位选择
+    // 1. 候选人进入面试链接，首先看到独立「在线笔试」环节、定位选择与严禁搜题提示
     await page.goto('/careers/applications/602/interview');
     await expect(page.getByTestId('written-intro-card')).toBeVisible();
     await expect(page.getByText('环节 1 / 2 · 在线笔试')).toBeVisible();
+    await expect(page.getByTestId('written-anti-cheat-warning')).toContainText('答题时禁止搜题');
+    await expect(page.getByTestId('written-anti-cheat-warning')).toContainText('后台会有提交审查');
     await page.getByTestId('written-level-junior').click();
 
-    // 2. 开始笔试，依次作答单选、多选与填空题并交卷
+    // 2. 开始笔试（二次确认知晓禁搜题与提交审查），依次作答单选、多选与填空题并交卷
     await page.getByTestId('start-written-btn').click();
+    await page.getByTestId('confirm-start-written-btn').click();
     await expect(page.getByTestId('written-active-panel')).toBeVisible();
     await expect(page.getByTestId('written-active-level')).toContainText('定位：初级');
     await page.getByTestId('written-opt-0-B').click();
@@ -948,8 +972,10 @@ test.describe('企业招聘全流程（候选人门户 + HR 后台审核与邮�
     await expect(page.getByTestId('screening-feedback-702')).toHaveCount(0);
     await expect(page.getByText('感谢您的关注与投入，经综合评估本次未能进入下一环节，祝您求职顺利。')).toBeVisible();
 
-    // 点击修改重提简历：将定位调整为初级并上传补充后的简历，流转回「简历筛选中」
+    // 点击修改重提简历：展示仅两次机会与严禁造假提醒，二次确认后流转回「简历筛选中」
     await page.getByTestId('open-resubmit-701').click();
+    await expect(page.getByTestId('resubmit-resume-warning')).toContainText('请勿乱提交简历：提交简历仅有两次机会');
+    await expect(page.getByTestId('resubmit-resume-warning')).toContainText('简历不允许造假，否则会直接不通过');
     await page.getByTestId('resubmit-level-701-junior').click();
     await page.getByTestId('resubmit-file-701').setInputFiles({
       name: 'zhou-revised-cv.pdf',
@@ -957,10 +983,257 @@ test.describe('企业招聘全流程（候选人门户 + HR 后台审核与邮�
       buffer: Buffer.from('%PDF-1.4 revised java spring boot resume'),
     });
     await page.getByTestId('confirm-resubmit-701').click();
+    await page.getByTestId('confirm-resubmit-dialog-btn').click();
 
     await expect(page.getByText('已重新提交简历，系统正在重新进行 AI 简历初筛')).toBeVisible();
     await expect(page.getByTestId('my-app-level-701')).toContainText('定位：初级');
     await expect(page.getByText('简历筛选中', { exact: true })).toBeVisible();
     await expect(page.getByTestId('screening-feedback-701')).toHaveCount(0);
+  });
+
+  test('HR 后台填写邮箱直接发送面试邀请并实时追踪参面状态，非受邀邮箱禁止登录与投递面试', async ({ page }) => {
+    await seedAdminAuth(page, 'HR');
+
+    let invitedList: Array<Record<string, unknown>> = [];
+    let candidateParticipated = false;
+    let secondRevoked = false;
+    let capturedInvitePayload: Record<string, unknown> | null = null;
+
+    await page.route('**/api/admin/jobs', route =>
+      ok(route, [
+        {
+          id: 21,
+          title: 'AI 应用研发工程师',
+          department: '大模型工程部',
+          location: '北京',
+          employmentType: 'FULL_TIME',
+          headcount: 3,
+          salaryRange: '35K-55K',
+          jdText: '负责智能招聘与多模态面试系统研发',
+          status: 'OPEN',
+          interviewMode: 'BOTH',
+          questionCount: 6,
+          aiPassThreshold: 70,
+          screeningEnabled: true,
+          screeningThreshold: 60,
+          updatedAt: '2026-11-18T10:00:00',
+        },
+      ]),
+    );
+
+    const buildRows = () => {
+      if (invitedList.length === 0) return [];
+      return [
+        {
+          id: 901,
+          jobId: 21,
+          jobTitle: 'AI 应用研发工程师',
+          email: 'invited@example.com',
+          candidateName: candidateParticipated ? '林知远' : null,
+          status: 'ACTIVE',
+          skipScreening: true,
+          note: '请在周五前完成在线面试',
+          invitedByName: 'HR 专员',
+          invitedAt: '2026-11-18T12:00:00',
+          expiresAt: '2026-11-25T12:00:00',
+          revokedAt: null,
+          sendCount: 1,
+          emailStatus: 'SENT',
+          emailSentAt: '2026-11-18T12:00:02',
+          emailError: null,
+          participated: candidateParticipated,
+          participationStatus: candidateParticipated ? 'COMPLETED' : 'NOT_APPLIED',
+          participationDetail: candidateParticipated
+            ? '已完成在线文字面试，AI 综合评分 89 分'
+            : '邀请邮件已发送，候选人尚未投递简历',
+          applicationId: candidateParticipated ? 811 : null,
+          applicationStatus: candidateParticipated ? 'AI_PASSED' : null,
+          interviewMode: candidateParticipated ? 'TEXT' : null,
+          screeningScore: null,
+          writtenScore: null,
+          aiScore: candidateParticipated ? 89 : null,
+          submittedAt: candidateParticipated ? '2026-11-18T13:00:00' : null,
+          interviewStartedAt: candidateParticipated ? '2026-11-18T13:02:00' : null,
+          interviewCompletedAt: candidateParticipated ? '2026-11-18T13:20:00' : null,
+        },
+        {
+          id: 902,
+          jobId: 21,
+          jobTitle: 'AI 应用研发工程师',
+          email: 'backup@example.com',
+          candidateName: null,
+          status: secondRevoked ? 'REVOKED' : 'ACTIVE',
+          skipScreening: true,
+          note: '请在周五前完成在线面试',
+          invitedByName: 'HR 专员',
+          invitedAt: '2026-11-18T12:00:00',
+          expiresAt: '2026-11-25T12:00:00',
+          revokedAt: secondRevoked ? '2026-11-18T14:00:00' : null,
+          sendCount: 1,
+          emailStatus: 'SENT',
+          emailSentAt: '2026-11-18T12:00:03',
+          emailError: null,
+          participated: false,
+          participationStatus: secondRevoked ? 'REVOKED' : 'NOT_APPLIED',
+          participationDetail: secondRevoked ? 'HR 已撤销该面试邀请' : '邀请邮件已发送，候选人尚未投递简历',
+          applicationId: null,
+          applicationStatus: null,
+          interviewMode: null,
+          screeningScore: null,
+          writtenScore: null,
+          aiScore: null,
+          submittedAt: null,
+          interviewStartedAt: null,
+          interviewCompletedAt: null,
+        },
+      ];
+    };
+
+    await page.route('**/api/admin/invitations/stats*', route => {
+      const rows = buildRows();
+      return ok(route, {
+        total: rows.length,
+        participated: rows.filter(r => r.participated).length,
+        pendingInterview: 0,
+        notApplied: rows.filter(r => r.participationStatus === 'NOT_APPLIED').length,
+        screenRejected: 0,
+        expiredOrRevoked: rows.filter(r => r.participationStatus === 'REVOKED').length,
+      });
+    });
+
+    await page.route('**/api/admin/invitations?*', route => {
+      const url = new URL(route.request().url());
+      const filter = url.searchParams.get('participation');
+      let rows = buildRows();
+      if (filter === 'PARTICIPATED') {
+        rows = rows.filter(r => r.participated);
+      }
+      return ok(route, {
+        items: rows,
+        total: rows.length,
+        page: 1,
+        size: 20,
+      });
+    });
+
+    await page.route('**/api/admin/invitations', async route => {
+      if (route.request().method() !== 'POST') {
+        return route.fallback();
+      }
+      capturedInvitePayload = route.request().postDataJSON() as Record<string, unknown>;
+      invitedList = [{ email: 'invited@example.com' }, { email: 'backup@example.com' }];
+      const rows = buildRows();
+      await ok(route, {
+        createdCount: 2,
+        resentCount: 0,
+        mailEnabled: true,
+        invitations: rows,
+        failed: [],
+      });
+    });
+
+    await page.route('**/api/admin/invitations/902/revoke', async route => {
+      secondRevoked = true;
+      const rows = buildRows();
+      await ok(route, rows[1]);
+    });
+
+    // 1. HR 打开后台面试邀请管理页，直接填写多个邮箱发送面试邀请邮件
+    await page.goto('/admin/invitations');
+    await expect(page.getByRole('heading', { name: '面试邀请管理' })).toBeVisible();
+    await page.getByTestId('open-send-invite-btn').click();
+    await expect(page.getByTestId('send-invite-modal')).toBeVisible();
+    await page.getByTestId('invite-emails-input').fill('invited@example.com\nbackup@example.com');
+    await expect(page.getByText('已识别 2 个邮箱')).toBeVisible();
+    await page.getByTestId('invite-skip-screening').check();
+    await page.getByTestId('invite-note').fill('请在周五前完成在线面试');
+    await page.getByTestId('confirm-send-invite-btn').click();
+
+    expect(capturedInvitePayload).toMatchObject({
+      jobId: 21,
+      skipScreening: true,
+      note: '请在周五前完成在线面试',
+    });
+    await expect(page.getByText('新增邀请 2 人')).toBeVisible();
+    await expect(page.getByTestId('stat-participated')).toHaveText('0');
+    await expect(page.getByTestId('stat-not-applied')).toHaveText('2');
+    await expect(page.getByTestId('invite-participation-901')).toContainText('未参加面试');
+    await expect(page.getByTestId('invite-participation-901')).toContainText('未参加 · 尚未投递简历');
+
+    // 2. 模拟受邀候选人完成面试后，HR 筛选「已参加面试」可实时看到参面状态与综合得分，并支持撤销其他邀请
+    candidateParticipated = true;
+    await page.getByTestId('invite-filter-PARTICIPATED').click();
+    await expect(page.getByTestId('stat-participated')).toHaveText('1');
+    await expect(page.getByTestId('invite-participation-901')).toContainText('已参加面试');
+    await expect(page.getByTestId('invite-participation-901')).toContainText('已参加 · 已完成面试');
+    await expect(page.getByTestId('invite-participation-901')).toContainText('综合 89 分');
+    await expect(page.getByTestId('invite-view-app-901')).toBeVisible();
+
+    await page.getByTestId('invite-filter-ALL').click();
+    await page.getByTestId('invite-revoke-902').click();
+    await page.getByTestId('confirm-revoke-invite-btn').click();
+    await expect(page.getByTestId('invite-participation-902')).toContainText('已撤销邀请');
+
+    // 3. 非受邀邮箱尝试在候选人登录页获取验证码 → 直接被拦截并提示不允许投递简历与参加面试
+    await page.route('**/api/public/candidate-auth/send-code', route =>
+      route.fulfill({
+        json: {
+          code: 14017,
+          message: '当前邮箱未收到面试邀请，非受邀邮箱不允许投递简历与参加面试',
+          data: null,
+        },
+      }),
+    );
+
+    await page.goto('/careers/login');
+    await page.getByPlaceholder('name@example.com').fill('stranger@example.com');
+    await page.getByRole('button', { name: '获取验证码' }).click();
+    await expect(page.getByTestId('candidate-login-error')).toContainText(
+      '当前邮箱未收到面试邀请，非受邀邮箱不允许投递简历与参加面试',
+    );
+
+    // 4. 仅获其他岗位邀请的候选人访问未受邀岗位详情页 → 显示非受邀拦截横幅且隐藏上传投递表单
+    await page.evaluate(() => {
+      window.localStorage.setItem('ig_candidate_token', 'cand-jwt-other-job');
+      window.localStorage.setItem('ig_candidate_token_expires_at', '2099-12-31T23:59:59.000Z');
+      window.localStorage.setItem(
+        'ig_candidate_profile',
+        JSON.stringify({ id: 109, email: 'only-job-a@example.com', name: '赵同学', phone: null }),
+      );
+    });
+    await page.route('**/api/public/jobs/99', route =>
+      ok(route, {
+        id: 99,
+        title: '核心存储引擎研发工程师',
+        department: '基础软件部',
+        location: '深圳',
+        employmentType: 'FULL_TIME',
+        headcount: 1,
+        salaryRange: '45K-70K',
+        jdText: '负责分布式存储引擎研发。',
+        difficulty: 'senior',
+        interviewMode: 'VOICE',
+        questionCount: 6,
+        timeLimitMinutes: 40,
+        deadline: null,
+        publishedAt: '2026-11-18T08:00:00',
+      }),
+    );
+    await page.route('**/api/candidate/jobs/99/invitation', route =>
+      ok(route, {
+        inviteOnly: true,
+        canApply: false,
+        invited: false,
+        expired: false,
+        revoked: false,
+        skipScreening: false,
+        expiresAt: null,
+        message: '当前邮箱未收到该岗位的面试邀请，非受邀邮箱不允许投递简历与参加面试',
+      }),
+    );
+
+    await page.goto('/careers/99');
+    await expect(page.getByTestId('not-invited-banner')).toContainText('非受邀邮箱不允许投递简历与参加面试');
+    await expect(page.getByRole('button', { name: '提交简历' })).toHaveCount(0);
   });
 });

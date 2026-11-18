@@ -57,6 +57,7 @@ public class CandidateAuthService {
   private final JwtTokenService jwtTokenService;
   private final TransactionalExecutor transactionalExecutor;
   private final RecruitmentProperties properties;
+  private final RecruitmentInvitationService invitationService;
   private final SecureRandom secureRandom = new SecureRandom();
 
   /**
@@ -64,6 +65,7 @@ public class CandidateAuthService {
    */
   public void sendCode(String rawEmail) {
     String email = normalizeEmail(rawEmail);
+    invitationService.assertCanAuthenticate(email);
     RecruitmentProperties.Otp otp = properties.getOtp();
 
     if (redisService.exists(COOLDOWN_KEY + email)) {
@@ -107,6 +109,7 @@ public class CandidateAuthService {
    */
   public CandidateLoginResponse verify(String rawEmail, String code) {
     String email = normalizeEmail(rawEmail);
+    invitationService.assertCanAuthenticate(email);
     String stored = redisService.get(CODE_KEY + email);
     if (stored == null) {
       throw new BusinessException(ErrorCode.VERIFICATION_CODE_INVALID);

@@ -113,6 +113,7 @@ public enum ErrorCode {
     WRITTEN_TEST_GENERATION_FAILED(14014, "AI 笔试出题失败，请稍后重试"),
     WRITTEN_TEST_JUDGE_FAILED(14015, "AI 填空题判分失败"),
     WRITTEN_TEST_NOT_AVAILABLE(14016, "当前无法进行笔试"),
+    CANDIDATE_NOT_INVITED(14017, "当前邮箱未收到面试邀请，非受邀邮箱不允许投递简历与参加面试"),
 
     // ========== 邮件模块错误 15xxx ==========
     MAIL_NOT_CONFIGURED(15001, "邮件服务未配置或未启用"),

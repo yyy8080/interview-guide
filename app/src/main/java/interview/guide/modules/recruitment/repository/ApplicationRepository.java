@@ -23,6 +23,8 @@ public interface ApplicationRepository extends JpaRepository<ApplicationEntity, 
 
   boolean existsByJobIdAndCandidateId(Long jobId, Long candidateId);
 
+  Optional<ApplicationEntity> findByJobIdAndCandidateId(Long jobId, Long candidateId);
+
   boolean existsByResumeId(Long resumeId);
 
   long countByJobId(Long jobId);

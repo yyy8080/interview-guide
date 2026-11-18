@@ -97,6 +97,9 @@ class CandidateInterviewServiceTest {
   @Mock
   private RedisService redisService;
 
+  @Mock
+  private RecruitmentInvitationService invitationService;
+
   private CandidateInterviewService service;
 
   @BeforeEach
@@ -105,7 +108,7 @@ class CandidateInterviewServiceTest {
         applicationRepository, proctorEventRepository, answerTelemetryRepository, writtenTestRepository,
         resumeRepository, jobPositionService, interviewSessionService, knowledgeBaseInterviewService,
         voiceInterviewService, stateMachine, workflowService, candidateAuthService, transactionalExecutor,
-        redisService, new RecruitmentProperties());
+        redisService, new RecruitmentProperties(), invitationService);
   }
 
   @Test

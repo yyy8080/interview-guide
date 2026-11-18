@@ -266,6 +266,8 @@ app:
     portal-base-url: ${APP_RECRUITMENT_PORTAL_BASE_URL:http://localhost:5173}
     # 公司名称默认值（后台邮件设置未填写时使用）
     company-name: ${APP_RECRUITMENT_COMPANY_NAME:招聘团队}
+    # 是否仅允许收到后台面试邀请的邮箱登录、投递简历与进入面试（默认开启）
+    invite-only: ${APP_RECRUITMENT_INVITE_ONLY:true}
     # 在线面试邀请有效期（天）
     invite-expire-days: ${APP_RECRUITMENT_INVITE_EXPIRE_DAYS:7}
     # 岗位未配置时的初筛通过线（默认 60 分） / 初筛未通过允许修改重传次数 / 语音面试默认时长（分钟）

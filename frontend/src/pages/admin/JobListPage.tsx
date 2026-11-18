@@ -13,6 +13,7 @@ import {
   Power,
   RefreshCw,
   Search,
+  Send,
   Trash2,
   Users,
 } from 'lucide-react';
@@ -273,6 +274,15 @@ export default function JobListPage() {
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
+                {job.status === 'OPEN' && canWrite && (
+                  <Link
+                    to={`${ROUTES.adminInvitations}?jobId=${job.id}&invite=1`}
+                    data-testid={`job-invite-btn-${job.id}`}
+                    className="btn-primary flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm"
+                  >
+                    <Send className="h-4 w-4" />邀请面试
+                  </Link>
+                )}
                 <Link
                   to={`${ROUTES.adminApplications}?jobId=${job.id}`}
                   className="btn-secondary flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm"

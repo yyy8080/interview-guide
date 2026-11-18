@@ -19,6 +19,9 @@ public class RecruitmentProperties {
   /** 公司名称默认值，后台邮件配置未填写时使用 */
   private String companyName = "招聘团队";
 
+  /** 是否仅允许收到后台邀请的邮箱登录、投递简历及进入在线面试 */
+  private boolean inviteOnly = true;
+
   /** 在线面试邀请有效期（天），超时未开始面试转为已过期 */
   private int inviteExpireDays = 7;
 

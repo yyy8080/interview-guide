@@ -55,6 +55,7 @@ public class CandidateWrittenTestService {
   private final WrittenTestCodec codec;
   private final TransactionalExecutor transactionalExecutor;
   private final RedisService redisService;
+  private final RecruitmentInvitationService invitationService;
 
   // ========== 开始笔试 ==========
 
@@ -67,7 +68,8 @@ public class CandidateWrittenTestService {
    */
   public CandidateWrittenTestDTO start(Long candidateId, Long applicationId, String candidateLevel) {
     String requestedLevel = CandidateLevels.normalizeOrNull(candidateLevel);
-    requireOwned(candidateId, applicationId);
+    ApplicationEntity current = requireOwned(candidateId, applicationId);
+    invitationService.assertCanAccessInterview(current);
     if (writtenTestRepository.findByApplicationId(applicationId).isPresent()) {
       return getState(candidateId, applicationId);
     }
@@ -90,6 +92,7 @@ public class CandidateWrittenTestService {
       return null;
     }
     ApplicationEntity application = requireOwned(candidateId, applicationId);
+    invitationService.assertCanAccessInterview(application);
     assertStartable(application);
     JobPositionEntity job = jobPositionService.getEntity(application.getJobId());
     if (!job.isWrittenTestEnabled()) {
@@ -142,6 +145,7 @@ public class CandidateWrittenTestService {
 
   public CandidateWrittenTestDTO getState(Long candidateId, Long applicationId) {
     ApplicationEntity application = requireOwned(candidateId, applicationId);
+    invitationService.assertCanAccessInterview(application);
     JobPositionEntity job = jobPositionService.getEntity(application.getJobId());
     String effectiveLevel = CandidateLevels.resolve(application.getCandidateLevel(), job.getDifficulty());
     Optional<WrittenTestEntity> found = writtenTestRepository.findByApplicationId(applicationId);
@@ -172,7 +176,8 @@ public class CandidateWrittenTestService {
 
   /** 自动保存作答（覆盖式） */
   public void saveAnswers(Long candidateId, Long applicationId, WrittenAnswersRequest request) {
-    requireOwned(candidateId, applicationId);
+    ApplicationEntity application = requireOwned(candidateId, applicationId);
+    invitationService.assertCanAccessInterview(application);
     WrittenTestEntity test = requireInProgress(applicationId);
     if (isOverdue(test)) {
       submitAndGrade(test, llmProviderOf(applicationId));
@@ -185,7 +190,8 @@ public class CandidateWrittenTestService {
 
   /** 交卷：先保存最后一次作答（截止时间宽限内），再判分；重复交卷幂等 */
   public CandidateWrittenTestDTO submit(Long candidateId, Long applicationId, WrittenAnswersRequest request) {
-    requireOwned(candidateId, applicationId);
+    ApplicationEntity application = requireOwned(candidateId, applicationId);
+    invitationService.assertCanAccessInterview(application);
     WrittenTestEntity test = writtenTestRepository.findByApplicationId(applicationId)
         .orElseThrow(() -> new BusinessException(ErrorCode.WRITTEN_TEST_NOT_AVAILABLE, "尚未开始笔试"));
     if (test.getStatus() == WrittenTestStatus.IN_PROGRESS) {

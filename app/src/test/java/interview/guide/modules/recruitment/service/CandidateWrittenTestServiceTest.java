@@ -63,6 +63,9 @@ class CandidateWrittenTestServiceTest {
   @Mock
   private RedisService redisService;
 
+  @Mock
+  private RecruitmentInvitationService invitationService;
+
   private WrittenTestCodec codec;
   private CandidateWrittenTestService service;
 
@@ -71,7 +74,7 @@ class CandidateWrittenTestServiceTest {
     codec = new WrittenTestCodec(new ObjectMapper());
     service = new CandidateWrittenTestService(
         applicationRepository, writtenTestRepository, jobPositionService,
-        generator, grader, codec, transactionalExecutor, redisService);
+        generator, grader, codec, transactionalExecutor, redisService, invitationService);
   }
 
   @Test

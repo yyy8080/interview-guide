@@ -129,6 +129,13 @@ export default function Layout() {
           description: '候选人审核与线下邀约',
         },
         {
+          id: 'admin-invitations',
+          path: ROUTES.adminInvitations,
+          label: '面试邀请',
+          icon: Mail,
+          description: '定向邮箱邀请与参面状态',
+        },
+        {
           id: 'admin-jobs',
           path: ROUTES.adminJobs,
           label: '岗位管理',

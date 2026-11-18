@@ -8,6 +8,7 @@ import {
   Loader2,
   RefreshCw,
   Search,
+  Send,
   XCircle,
 } from 'lucide-react';
 import { applicationApi } from '../../api/application';
@@ -189,14 +190,27 @@ export default function ApplicationListPage() {
             查看候选人简历初筛、在线 AI 面试评分，执行 HR 审核与线下面试邀约 · 共 {total} 条投递
           </p>
         </div>
-        <button
-          type="button"
-          onClick={loadData}
-          className="btn-secondary flex items-center gap-2 rounded-xl px-4 py-2 text-sm"
-        >
-          <RefreshCw className="h-4 w-4" />
-          刷新
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <Link
+            to={
+              jobId
+                ? `${ROUTES.adminInvitations}?jobId=${jobId}${canWrite ? '&invite=1' : ''}`
+                : `${ROUTES.adminInvitations}${canWrite ? '?invite=1' : ''}`
+            }
+            className="btn-primary flex items-center gap-2 rounded-xl px-4 py-2 text-sm"
+          >
+            <Send className="h-4 w-4" />
+            {canWrite ? '邀请面试' : '查看面试邀请'}
+          </Link>
+          <button
+            type="button"
+            onClick={loadData}
+            className="btn-secondary flex items-center gap-2 rounded-xl px-4 py-2 text-sm"
+          >
+            <RefreshCw className="h-4 w-4" />
+            刷新
+          </button>
+        </div>
       </div>
 
       {notice && (

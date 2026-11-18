@@ -89,6 +89,7 @@ public class CandidateInterviewService {
   private final TransactionalExecutor transactionalExecutor;
   private final RedisService redisService;
   private final RecruitmentProperties properties;
+  private final RecruitmentInvitationService invitationService;
 
   // ========== 开始面试 ==========
 
@@ -108,6 +109,7 @@ public class CandidateInterviewService {
     }
     String requestedLevel = CandidateLevels.normalizeOrNull(candidateLevel);
     ApplicationEntity current = requireOwned(candidateId, applicationId);
+    invitationService.assertCanAccessInterview(current);
     if (current.getStatus() == ApplicationStatus.INTERVIEWING) {
       return getState(candidateId, applicationId);
     }
@@ -127,6 +129,7 @@ public class CandidateInterviewService {
 
   private Void doStart(Long candidateId, Long applicationId, InterviewMode mode, String requestedLevel) {
     ApplicationEntity application = requireOwned(candidateId, applicationId);
+    invitationService.assertCanAccessInterview(application);
     if (application.getStatus() == ApplicationStatus.INTERVIEWING) {
       return null;
     }
@@ -258,6 +261,7 @@ public class CandidateInterviewService {
 
   public CandidateInterviewDTO getState(Long candidateId, Long applicationId) {
     ApplicationEntity application = requireOwned(candidateId, applicationId);
+    invitationService.assertCanAccessInterview(application);
     JobPositionEntity job = jobPositionService.getEntity(application.getJobId());
     String effectiveLevel = interview.guide.modules.recruitment.model.CandidateLevels.resolve(
         application.getCandidateLevel(), job.getDifficulty());
@@ -378,7 +382,11 @@ public class CandidateInterviewService {
       return applicationRepository.findByVoiceSessionId(voiceSessionId)
           .filter(app -> app.getCandidateId().equals(candidateId))
           .filter(app -> app.getStatus() == ApplicationStatus.INTERVIEWING)
-          .isPresent();
+          .map(app -> {
+            invitationService.assertCanAccessInterview(app);
+            return true;
+          })
+          .orElse(false);
     } catch (BusinessException e) {
       return false;
     }
@@ -496,6 +504,7 @@ public class CandidateInterviewService {
 
   private ApplicationEntity requireInterviewing(Long candidateId, Long applicationId, InterviewMode mode) {
     ApplicationEntity application = requireOwned(candidateId, applicationId);
+    invitationService.assertCanAccessInterview(application);
     if (application.getStatus() != ApplicationStatus.INTERVIEWING || application.getInterviewMode() != mode) {
       throw new BusinessException(ErrorCode.INTERVIEW_NOT_AVAILABLE, "当前不在" + modeLabel(mode) + "中");
     }

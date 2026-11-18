@@ -67,6 +67,7 @@ public class SecurityConfig {
   /** 面试官角色可读（GET）的路径 */
   static final String[] INTERVIEWER_READ_PATHS = {
       "/api/admin/applications/**",
+      "/api/admin/invitations/**",
       "/api/admin/jobs/**",
       "/api/interview/sessions/*/details",
       "/api/voice-interview/sessions/*/evaluation",

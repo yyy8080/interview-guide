@@ -14,6 +14,7 @@ export const ROUTES = {
   adminJobEdit: (id: number) => `/admin/jobs/${id}/edit`,
   adminApplications: '/admin/applications',
   adminApplicationDetail: (id: number) => `/admin/applications/${id}`,
+  adminInvitations: '/admin/invitations',
   adminMail: '/admin/mail',
   adminAccount: '/admin/account',
 

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ClipboardEvent as ReactClipboardEvent } from 'react';
 import { Link } from 'react-router-dom';
 import {
+  AlertTriangle,
   CheckSquare,
   Clock,
   FileCheck2,
@@ -81,6 +82,7 @@ export default function CandidateWrittenTest({
   const [remaining, setRemaining] = useState<number | null>(null);
   const [loading, setLoading] = useState(initialStatus === 'IN_PROGRESS');
   const [starting, setStarting] = useState(false);
+  const [confirmStartOpen, setConfirmStartOpen] = useState(false);
   const [savingHint, setSavingHint] = useState<'idle' | 'saving' | 'saved'>('idle');
   const [submitting, setSubmitting] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -201,8 +203,10 @@ export default function CandidateWrittenTest({
     setError(null);
     try {
       const started = await candidateApi.startWrittenTest(applicationId, candidateLevel);
+      setConfirmStartOpen(false);
       applyTestState(started);
     } catch (err) {
+      setConfirmStartOpen(false);
       setError(getErrorMessage(err));
     } finally {
       setStarting(false);
@@ -280,6 +284,27 @@ export default function CandidateWrittenTest({
             testIdPrefix="written-level"
           />
 
+          <div
+            data-testid="written-anti-cheat-warning"
+            className="space-y-1.5 rounded-xl border border-amber-300/80 bg-amber-50/80 p-4 text-xs leading-relaxed text-amber-950 dark:border-amber-700/60 dark:bg-amber-900/25 dark:text-amber-100"
+          >
+            <div className="flex items-center gap-1.5 font-semibold text-amber-900 dark:text-amber-200">
+              <AlertTriangle className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+              答题前重要提醒（严禁搜题与简历造假）
+            </div>
+            <ul className="list-disc space-y-1 pl-5">
+              <li>
+                <strong>答题时禁止搜题</strong>：严禁切换页面搜题、查阅资料、复制题目或借助外部 AI / 搜索工具代答。
+              </li>
+              <li>
+                <strong>后台会有提交审查</strong>：系统后台会全程记录离开页面时长、粘贴文本与作答耗时并生成提交审查报告。
+              </li>
+              <li>
+                <strong>诚信红线</strong>：请勿乱提交简历（提交简历仅有两次机会），<strong>简历不允许造假，否则会直接不通过</strong>。
+              </li>
+            </ul>
+          </div>
+
           <div className="rounded-xl bg-slate-50 p-4 text-xs leading-relaxed text-slate-600 dark:bg-slate-800/60 dark:text-slate-300">
             <div className="mb-1.5 flex items-center gap-1.5 font-semibold text-slate-800 dark:text-slate-200">
               <ShieldCheck className="h-4 w-4 text-primary-500" />
@@ -288,7 +313,7 @@ export default function CandidateWrittenTest({
             <ul className="list-disc space-y-1 pl-5">
               <li>包含单选题、多选题（全对得分，少选或错选不得分）与单空填空题，作答进度自动保存。</li>
               <li>点击「开始在线笔试」后由 AI 按您所选定位实时生成试卷并开始倒计时，到时自动交卷。</li>
-              <li>无需开启摄像头或全屏；请本人独立作答，系统会无感记录离开页面、粘贴等行为供 HR 复核参考。</li>
+              <li>无需开启摄像头或全屏；请本人独立作答。</li>
             </ul>
           </div>
 
@@ -300,7 +325,7 @@ export default function CandidateWrittenTest({
               type="button"
               data-testid="start-written-btn"
               disabled={starting}
-              onClick={handleStart}
+              onClick={() => setConfirmStartOpen(true)}
               className="btn-primary flex items-center gap-2 rounded-xl px-6 py-2.5 text-sm font-medium disabled:opacity-60"
             >
               {starting && <Loader2 className="h-4 w-4 animate-spin" />}
@@ -308,6 +333,20 @@ export default function CandidateWrittenTest({
             </button>
           </div>
         </div>
+
+        <ConfirmDialog
+          open={confirmStartOpen}
+          title="开始在线笔试前确认"
+          message={
+            '请确认已知晓并遵守以下作答规范：\n1. 答题时禁止搜题、切屏查资料或粘贴外部答案，后台会有提交审查；\n2. 请勿乱提交简历（提交简历仅有两次机会），简历不允许造假，否则会直接不通过。\n\n确认现在生成试卷并开始倒计时答题吗？'
+          }
+          confirmText="我已知晓，开始答题"
+          confirmVariant="warning"
+          confirmTestId="confirm-start-written-btn"
+          loading={starting}
+          onConfirm={() => void handleStart()}
+          onCancel={() => setConfirmStartOpen(false)}
+        />
       </div>
     );
   }
@@ -325,6 +364,9 @@ export default function CandidateWrittenTest({
               className="rounded-full bg-primary-50 px-2.5 py-0.5 text-xs font-medium text-primary-700 dark:bg-primary-900/30 dark:text-primary-300"
             >
               定位：{JOB_DIFFICULTY_LABELS[activeLevel]}
+            </span>
+            <span className="rounded-full bg-amber-50 px-2.5 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900/30 dark:text-amber-300">
+              禁止搜题 · 后台提交审查
             </span>
           </div>
           <p className="text-xs text-slate-500 dark:text-slate-400">

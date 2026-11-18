@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ClipboardEvent as ReactClipboardEvent } from 'react';
 import { Link, Navigate, useParams } from 'react-router-dom';
 import {
+  AlertTriangle,
   CheckCircle2,
   Clock,
   Loader2,
@@ -57,6 +58,7 @@ export default function CandidateInterviewPage() {
   const [chosenLevel, setChosenLevel] = useState<JobDifficulty>('mid');
   const [loading, setLoading] = useState(true);
   const [starting, setStarting] = useState(false);
+  const [confirmStartOpen, setConfirmStartOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [completing, setCompleting] = useState(false);
   const [confirmCompleteOpen, setConfirmCompleteOpen] = useState(false);
@@ -208,6 +210,7 @@ export default function CandidateInterviewPage() {
     setError(null);
     try {
       const started = await candidateApi.startInterview(id, chosenMode, chosenLevel);
+      setConfirmStartOpen(false);
       setState(started);
       if (started.candidateLevel) {
         setChosenLevel(started.candidateLevel);
@@ -215,6 +218,7 @@ export default function CandidateInterviewPage() {
       setRemaining(started.remainingSeconds);
       applyQuestion(started.currentQuestion);
     } catch (err) {
+      setConfirmStartOpen(false);
       setError(getErrorMessage(err));
     } finally {
       setStarting(false);
@@ -466,6 +470,25 @@ export default function CandidateInterviewPage() {
             </div>
           </div>
 
+          {/* 答题前醒目警示 */}
+          <div
+            data-testid="interview-anti-cheat-warning"
+            className="space-y-1.5 rounded-xl border border-amber-300/80 bg-amber-50/80 p-4 text-xs leading-relaxed text-amber-950 dark:border-amber-700/60 dark:bg-amber-900/25 dark:text-amber-100"
+          >
+            <div className="flex items-center gap-1.5 font-semibold text-amber-900 dark:text-amber-200">
+              <AlertTriangle className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+              答题前重要提醒（严禁搜题与简历造假）
+            </div>
+            <ul className="list-disc space-y-1 pl-5">
+              <li>
+                <strong>答题时禁止搜题</strong>：面试作答期间严禁搜题、切换页面查资料、粘贴外部答案或借助工具代答，<strong>后台会有提交审查</strong>。
+              </li>
+              <li>
+                <strong>简历不允许造假，否则会直接不通过</strong>：请勿乱提交简历（提交简历仅有两次机会），AI 面试官将围绕您简历中的经历逐项核验真实性。
+              </li>
+            </ul>
+          </div>
+
           {/* 面试须知 */}
           <div className="rounded-xl bg-slate-50 p-4 text-xs leading-relaxed text-slate-600 dark:bg-slate-800/60 dark:text-slate-300">
             <div className="mb-1.5 flex items-center gap-1.5 font-semibold text-slate-800 dark:text-slate-200">
@@ -473,9 +496,9 @@ export default function CandidateInterviewPage() {
               诚信面试须知
             </div>
             <ul className="list-disc space-y-1 pl-5">
-              <li>点击「开始面试」后由 AI 按您所选定位生成面试题目并立即开始计时，请确保网络通畅、环境安静。</li>
+              <li>点击「开始在线面试」后由 AI 按您所选定位生成面试题目并立即开始计时，请确保网络通畅、环境安静。</li>
               <li>语音面试将重点围绕您简历中填写的项目、模块与成果细节提问以核验简历真实性，请结合本人真实经历作答。</li>
-              <li>本次面试不会开启摄像头，也无需全屏；系统会无感记录离开页面、粘贴等作答行为，仅供 HR 复核参考。</li>
+              <li>本次面试不会开启摄像头，也无需全屏；系统后台会无感记录离开页面、粘贴等作答行为并纳入提交审查。</li>
             </ul>
           </div>
 
@@ -485,8 +508,9 @@ export default function CandidateInterviewPage() {
             </Link>
             <button
               type="button"
+              data-testid="start-interview-btn"
               disabled={starting}
-              onClick={handleStart}
+              onClick={() => setConfirmStartOpen(true)}
               className="btn-primary flex items-center gap-2 rounded-xl px-6 py-2.5 text-sm font-medium disabled:opacity-60"
             >
               {starting && <Loader2 className="h-4 w-4 animate-spin" />}
@@ -494,6 +518,20 @@ export default function CandidateInterviewPage() {
             </button>
           </div>
         </div>
+
+        <ConfirmDialog
+          open={confirmStartOpen}
+          title="开始在线面试前确认"
+          message={
+            '请确认已知晓并遵守以下作答规范：\n1. 答题时禁止搜题、切屏查资料或粘贴外部答案，后台会有提交审查；\n2. 请勿乱提交简历（提交简历仅有两次机会），简历不允许造假，否则会直接不通过。\n\n确认现在生成面试题目并开始作答吗？'
+          }
+          confirmText="我已知晓，开始面试"
+          confirmVariant="warning"
+          confirmTestId="confirm-start-interview-btn"
+          loading={starting}
+          onConfirm={() => void handleStart()}
+          onCancel={() => setConfirmStartOpen(false)}
+        />
       </div>
     );
   }
@@ -517,6 +555,9 @@ export default function CandidateInterviewPage() {
             </span>
             <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs text-slate-600 dark:bg-slate-800 dark:text-slate-300">
               含简历真实性追问
+            </span>
+            <span className="rounded-full bg-amber-50 px-2.5 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900/30 dark:text-amber-300">
+              禁止搜题 · 后台提交审查
             </span>
           </div>
           {remaining != null && (
@@ -557,6 +598,9 @@ export default function CandidateInterviewPage() {
               className="rounded-full bg-primary-50 px-2.5 py-0.5 text-xs font-medium text-primary-700 dark:bg-primary-900/30 dark:text-primary-300"
             >
               定位：{JOB_DIFFICULTY_LABELS[activeLevel]}
+            </span>
+            <span className="rounded-full bg-amber-50 px-2.5 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900/30 dark:text-amber-300">
+              禁止搜题 · 后台提交审查
             </span>
           </div>
           <p className="text-xs text-slate-500 dark:text-slate-400">

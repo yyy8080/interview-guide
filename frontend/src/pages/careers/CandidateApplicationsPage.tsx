@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link, Navigate } from 'react-router-dom';
 import {
+  AlertTriangle,
   ArrowRight,
   Calendar,
   CheckCircle2,
@@ -13,6 +14,7 @@ import {
 import { candidateApi } from '../../api/candidate';
 import { getErrorMessage } from '../../api/request';
 import CandidateLevelSelector from '../../components/CandidateLevelSelector';
+import ConfirmDialog from '../../components/ConfirmDialog';
 import { ROUTES } from '../../constants/routes';
 import { formatDateTime } from '../../utils/date';
 import { isCandidateAuthenticated } from '../../utils/candidateStorage';
@@ -49,6 +51,7 @@ export default function CandidateApplicationsPage() {
   const [resubmitOpenId, setResubmitOpenId] = useState<number | null>(null);
   const [resubmitFile, setResubmitFile] = useState<File | null>(null);
   const [resubmitLevel, setResubmitLevel] = useState<JobDifficulty>('mid');
+  const [confirmResubmitId, setConfirmResubmitId] = useState<number | null>(null);
 
   const loadList = useCallback(async () => {
     setLoading(true);
@@ -130,10 +133,12 @@ export default function CandidateApplicationsPage() {
         candidateLevel: resubmitLevel,
       });
       setItems(prev => prev.map(item => (item.id === id ? updated : item)));
+      setConfirmResubmitId(null);
       setResubmitOpenId(null);
       setResubmitFile(null);
       showNotice('已重新提交简历，系统正在重新进行 AI 简历初筛');
     } catch (err) {
+      setConfirmResubmitId(null);
       setError(getErrorMessage(err));
     } finally {
       setActingId(null);
@@ -330,6 +335,17 @@ export default function CandidateApplicationsPage() {
                             data-testid={`resubmit-panel-${app.id}`}
                             className="space-y-3 rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900/70"
                           >
+                            <div
+                              data-testid="resubmit-resume-warning"
+                              className="flex items-start gap-2 rounded-xl border border-amber-300/80 bg-amber-50/80 p-3 text-xs leading-relaxed text-amber-950 dark:border-amber-700/60 dark:bg-amber-900/25 dark:text-amber-100"
+                            >
+                              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+                              <div>
+                                <strong>请勿乱提交简历：提交简历仅有两次机会</strong>（本次为最后一次修改重提机会）。
+                                <strong>简历不允许造假，否则会直接不通过</strong>；进入面试答题时禁止搜题，后台会有提交审查。
+                              </div>
+                            </div>
+
                             <CandidateLevelSelector
                               value={resubmitLevel}
                               onChange={setResubmitLevel}
@@ -367,7 +383,7 @@ export default function CandidateApplicationsPage() {
                                 type="button"
                                 data-testid={`confirm-resubmit-${app.id}`}
                                 disabled={!resubmitFile || actingId === app.id}
-                                onClick={() => handleResubmitResume(app.id)}
+                                onClick={() => setConfirmResubmitId(app.id)}
                                 className="btn-primary flex items-center gap-1.5 rounded-xl px-4 py-1.5 text-xs font-medium disabled:opacity-50"
                               >
                                 {actingId === app.id && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
@@ -469,6 +485,24 @@ export default function CandidateApplicationsPage() {
           ))}
         </div>
       )}
+
+      <ConfirmDialog
+        open={confirmResubmitId !== null}
+        title="最后一次提交简历确认（第 2 / 2 次机会）"
+        message={
+          '请再次确认：\n1. 提交简历仅有两次机会，本次为最后一次重提机会，请勿乱提交简历；\n2. 简历不允许造假，一经发现虚构经历或造假将直接不通过；\n3. 后续答题时禁止搜题，后台会有提交审查。\n\n确认当前修改后的简历真实无误并立即提交初筛吗？'
+        }
+        confirmText="确认真实无误并提交"
+        confirmVariant="warning"
+        confirmTestId="confirm-resubmit-dialog-btn"
+        loading={confirmResubmitId !== null && actingId === confirmResubmitId}
+        onConfirm={() => {
+          if (confirmResubmitId !== null) {
+            void handleResubmitResume(confirmResubmitId);
+          }
+        }}
+        onCancel={() => setConfirmResubmitId(null)}
+      />
     </div>
   );
 }

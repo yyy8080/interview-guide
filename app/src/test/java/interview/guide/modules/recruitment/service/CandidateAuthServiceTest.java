@@ -55,6 +55,9 @@ class CandidateAuthServiceTest {
   @Mock
   private TransactionalExecutor transactionalExecutor;
 
+  @Mock
+  private RecruitmentInvitationService invitationService;
+
   private JwtTokenService jwtTokenService;
   private RecruitmentProperties properties;
   private CandidateAuthService authService;
@@ -67,7 +70,7 @@ class CandidateAuthServiceTest {
     properties = new RecruitmentProperties();
     authService = new CandidateAuthService(
         redisService, mailOutboxService, mailSettingsService,
-        candidateRepository, jwtTokenService, transactionalExecutor, properties);
+        candidateRepository, jwtTokenService, transactionalExecutor, properties, invitationService);
   }
 
   private ResolvedMailConfig enabledMail() {
@@ -179,5 +182,23 @@ class CandidateAuthServiceTest {
         .isInstanceOf(BusinessException.class)
         .extracting(ex -> ((BusinessException) ex).getCode())
         .isEqualTo(ErrorCode.CANDIDATE_UNAUTHORIZED.getCode());
+  }
+
+  @Test
+  @DisplayName("非受邀邮箱在获取验证码或验证登录时直接抛出 CANDIDATE_NOT_INVITED 且不消耗邮件")
+  void rejectsUninvitedEmail() {
+    doThrow(new BusinessException(ErrorCode.CANDIDATE_NOT_INVITED))
+        .when(invitationService).assertCanAuthenticate("stranger@example.com");
+
+    assertThatThrownBy(() -> authService.sendCode("  Stranger@Example.com "))
+        .isInstanceOf(BusinessException.class)
+        .extracting(ex -> ((BusinessException) ex).getCode())
+        .isEqualTo(ErrorCode.CANDIDATE_NOT_INVITED.getCode());
+    verify(mailOutboxService, never()).sendVerificationCode(any(), any(), anyLong());
+
+    assertThatThrownBy(() -> authService.verify("stranger@example.com", "123456"))
+        .isInstanceOf(BusinessException.class)
+        .extracting(ex -> ((BusinessException) ex).getCode())
+        .isEqualTo(ErrorCode.CANDIDATE_NOT_INVITED.getCode());
   }
 }

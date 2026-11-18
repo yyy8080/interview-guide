@@ -12,6 +12,7 @@ export interface ConfirmDialogProps {
   loading?: boolean;
   customContent?: React.ReactNode;
   hideButtons?: boolean;
+  confirmTestId?: string;
 }
 
 export default function ConfirmDialog({
@@ -25,7 +26,8 @@ export default function ConfirmDialog({
   onCancel,
   loading = false,
   customContent,
-  hideButtons = false
+  hideButtons = false,
+  confirmTestId,
 }: ConfirmDialogProps) {
   if (!open) return null;
 
@@ -85,6 +87,7 @@ export default function ConfirmDialog({
                     {cancelText}
                   </motion.button>
                   <motion.button
+                    data-testid={confirmTestId}
                     onClick={onConfirm}
                     disabled={loading}
                     className={`px-5 py-2.5 text-white rounded-xl font-semibold shadow-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed ${variantStyles[confirmVariant]}`}

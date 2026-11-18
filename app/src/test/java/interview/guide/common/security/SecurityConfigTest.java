@@ -111,6 +111,9 @@ class SecurityConfigTest {
     mockMvc.perform(get("/api/admin/applications")
             .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
         .andExpect(status().isOk());
+    mockMvc.perform(get("/api/admin/invitations")
+            .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+        .andExpect(status().isOk());
     mockMvc.perform(get("/api/admin/jobs")
             .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
         .andExpect(status().isOk());
@@ -125,6 +128,9 @@ class SecurityConfigTest {
             .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
         .andExpect(status().isForbidden())
         .andExpect(jsonPath("$.code").value(403));
+    mockMvc.perform(post("/api/admin/invitations")
+            .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+        .andExpect(status().isForbidden());
     mockMvc.perform(post("/api/admin/jobs")
             .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
         .andExpect(status().isForbidden());
@@ -140,6 +146,9 @@ class SecurityConfigTest {
     String adminToken = issueForRole(1L, "admin", AdminRole.ADMIN);
 
     mockMvc.perform(post("/api/admin/applications/1/approve")
+            .header(HttpHeaders.AUTHORIZATION, "Bearer " + hrToken))
+        .andExpect(status().isOk());
+    mockMvc.perform(post("/api/admin/invitations")
             .header(HttpHeaders.AUTHORIZATION, "Bearer " + hrToken))
         .andExpect(status().isOk());
     mockMvc.perform(post("/api/admin/jobs")
@@ -220,6 +229,16 @@ class SecurityConfigTest {
     @PostMapping("/api/admin/applications/{id}/approve")
     String approveApp(@PathVariable Long id) {
       return "ok-" + id;
+    }
+
+    @GetMapping("/api/admin/invitations")
+    String listInvitations() {
+      return "ok";
+    }
+
+    @PostMapping("/api/admin/invitations")
+    String sendInvitations() {
+      return "ok";
     }
 
     @GetMapping("/api/admin/jobs")

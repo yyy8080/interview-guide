@@ -6,6 +6,7 @@ import interview.guide.modules.recruitment.model.CandidateAnswerRequest;
 import interview.guide.modules.recruitment.model.CandidateAnswerResponse;
 import interview.guide.modules.recruitment.model.CandidateApplicationDTO;
 import interview.guide.modules.recruitment.model.CandidateInterviewDTO;
+import interview.guide.modules.recruitment.model.CandidateJobInvitationStatusDTO;
 import interview.guide.modules.recruitment.model.CandidateProfileDTO;
 import interview.guide.modules.recruitment.model.CandidateWrittenTestDTO;
 import interview.guide.modules.recruitment.model.OfflineRescheduleRequest;
@@ -17,6 +18,7 @@ import interview.guide.modules.recruitment.service.CandidateApplicationService;
 import interview.guide.modules.recruitment.service.CandidateAuthService;
 import interview.guide.modules.recruitment.service.CandidateInterviewService;
 import interview.guide.modules.recruitment.service.CandidateWrittenTestService;
+import interview.guide.modules.recruitment.service.RecruitmentInvitationService;
 import jakarta.validation.Valid;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
@@ -44,6 +46,7 @@ public class CandidatePortalController {
   private final CandidateApplicationService applicationService;
   private final CandidateInterviewService interviewService;
   private final CandidateWrittenTestService writtenTestService;
+  private final RecruitmentInvitationService invitationService;
 
   @GetMapping("/me")
   public Result<CandidateProfileDTO> me(@RequestHeader(value = CandidateAuthService.TOKEN_HEADER, required = false)
@@ -52,6 +55,14 @@ public class CandidatePortalController {
   }
 
   // ========== 投递 ==========
+
+  @GetMapping("/jobs/{jobId}/invitation")
+  public Result<CandidateJobInvitationStatusDTO> getJobInvitation(
+      @RequestHeader(value = CandidateAuthService.TOKEN_HEADER, required = false) String token,
+      @PathVariable Long jobId) {
+    Long candidateId = candidateAuthService.requireCandidateId(token);
+    return Result.success(invitationService.checkCandidateJobStatus(jobId, candidateId));
+  }
 
   @PostMapping(value = "/jobs/{jobId}/apply", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
   @RateLimit(dimension = RateLimit.Dimension.IP, count = 10, interval = 1, timeUnit = RateLimit.TimeUnit.MINUTES)
