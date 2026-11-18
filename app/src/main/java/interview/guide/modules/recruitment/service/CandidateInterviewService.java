@@ -154,19 +154,24 @@ public class CandidateInterviewService {
     String effectiveAiExp = normalizedAiExp != null ? normalizedAiExp : application.getAiExperience();
     String effectiveSpecialties = sanitizedSpecialties != null ? sanitizedSpecialties : application.getSpecialties();
 
-    LocalDateTime now = LocalDateTime.now();
     String textSessionId = null;
     Long voiceSessionId = null;
-    LocalDateTime deadline;
+    int plannedVoice = 0;
     if (mode == InterviewMode.TEXT) {
       textSessionId = createTextSession(application, job, effectiveLevel, effectiveAiExp, effectiveSpecialties);
+    } else {
+      plannedVoice = plannedVoiceMinutes(job);
+      voiceSessionId = createVoiceSession(application, job, plannedVoice, effectiveLevel, effectiveAiExp, effectiveSpecialties);
+    }
+    // 计时从 AI 生成题目 / 会话完成后开始，候选人等待 AI 生成的时间不计入作答时长
+    LocalDateTime now = LocalDateTime.now();
+    LocalDateTime deadline;
+    if (mode == InterviewMode.TEXT) {
       deadline = job.getTimeLimitMinutes() != null && job.getTimeLimitMinutes() > 0
           ? now.plusMinutes(job.getTimeLimitMinutes())
           : now.plus(TEXT_HARD_LIMIT);
     } else {
-      int planned = plannedVoiceMinutes(job);
-      voiceSessionId = createVoiceSession(application, job, planned, effectiveLevel, effectiveAiExp, effectiveSpecialties);
-      deadline = now.plusMinutes(planned).plus(VOICE_GRACE);
+      deadline = now.plusMinutes(plannedVoice).plus(VOICE_GRACE);
     }
 
     String finalTextSessionId = textSessionId;

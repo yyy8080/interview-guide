@@ -4,6 +4,7 @@ import { Loader2, PhoneOff, Send, Volume2 } from 'lucide-react';
 import { API_BASE_URL } from '../api/request';
 import { VoiceInterviewWebSocket } from '../api/voiceInterview';
 import AudioRecorder from './AudioRecorder';
+import AiThinkingHint from './waiting/AiThinkingHint';
 import { getValidCandidateToken } from '../utils/candidateStorage';
 import { buildVoiceWebSocketUrl } from '../utils/voiceWebSocketUrl';
 import type { ProctorEventPayload } from '../types/recruitment';
@@ -54,10 +55,17 @@ export default function CandidateVoicePanel({
   const aiSpeakingRef = useRef(false);
   const aiFinishedAtRef = useRef<number | null>(null);
   const onProctorRef = useRef(onProctor);
+  const chatScrollRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     onProctorRef.current = onProctor;
   }, [onProctor]);
+
+  // 新消息 / 面试官实时字幕时自动滚动到底部
+  useEffect(() => {
+    const el = chatScrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [messages.length, aiLiveText]);
 
   const setSubmittingSync = useCallback((v: boolean) => {
     submittingRef.current = v;
@@ -285,8 +293,8 @@ export default function CandidateVoicePanel({
         }}
       />
 
-      <div className="dark-card flex flex-wrap items-center justify-between gap-3 p-4">
-        <div className="flex items-center gap-2 text-sm">
+      <div className="dark-card flex flex-wrap items-center justify-between gap-2 p-3 sm:gap-3 sm:p-4">
+        <div className="flex min-w-0 flex-wrap items-center gap-2 text-sm">
           <span
             className={`h-2.5 w-2.5 rounded-full ${
               status === 'connected'
@@ -325,7 +333,10 @@ export default function CandidateVoicePanel({
       )}
 
       {/* 对话记录 */}
-      <div className="dark-card max-h-[380px] min-h-[220px] space-y-3 overflow-y-auto p-5">
+      <div
+        ref={chatScrollRef}
+        className="dark-card max-h-[50dvh] min-h-[200px] space-y-3 overflow-y-auto overscroll-contain p-4 sm:max-h-[380px] sm:min-h-[220px] sm:p-5"
+      >
         {messages.length === 0 && !aiLiveText && (
           <p className="py-10 text-center text-sm text-slate-400">等待 AI 面试官发起开场提问…</p>
         )}
@@ -355,20 +366,21 @@ export default function CandidateVoicePanel({
       </div>
 
       {/* 录音与回答编辑发送 */}
-      <div className="dark-card space-y-3 p-5">
-        <div className="flex flex-wrap items-center gap-4">
+      <div className="dark-card space-y-3 p-4 sm:p-5">
+        <AiThinkingHint active={submitting && !aiSpeaking} testId="voice-interview-thinking" />
+        <div className="flex flex-wrap items-center gap-3 sm:gap-4">
           <AudioRecorder
             isRecording={isRecording}
             disabled={status !== 'connected' || aiSpeaking || submitting}
             onRecordingChange={setIsRecording}
             onAudioData={pcmBase64 => wsRef.current?.sendAudio(pcmBase64)}
           />
-          <p className="text-xs text-slate-500 dark:text-slate-400">
+          <p className="min-w-0 flex-1 text-xs text-slate-500 dark:text-slate-400">
             点击麦克风口头作答，识别出的文字会显示在下方，可修正个别错别字后点击「发送回答」
           </p>
         </div>
 
-        <div className="flex gap-2">
+        <div className="flex flex-col gap-2 sm:flex-row">
           <textarea
             rows={2}
             value={userText}
@@ -376,13 +388,13 @@ export default function CandidateVoicePanel({
             onPaste={handleVoicePaste}
             disabled={aiSpeaking || submitting || !hasHeard}
             placeholder={hasHeard ? '可修正识别错别字…' : '请先点击麦克风说话，识别内容将显示在这里…'}
-            className="flex-1 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-sm text-slate-900 focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+            className="min-w-0 flex-1 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-sm text-slate-900 focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white"
           />
           <button
             type="button"
             disabled={!userText.trim() || !hasHeard || aiSpeaking || submitting || status !== 'connected'}
             onClick={handleSendText}
-            className="btn-primary flex items-center gap-1.5 self-end rounded-xl px-5 py-2.5 text-sm disabled:opacity-50"
+            className="btn-primary flex w-full items-center justify-center gap-1.5 rounded-xl px-5 py-2.5 text-sm disabled:opacity-50 sm:w-auto sm:self-end"
           >
             {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
             发送回答

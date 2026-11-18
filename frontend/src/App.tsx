@@ -217,9 +217,12 @@ function App() {
             <Route path=":jobId" element={<CareerJobDetailPage />} />
           </Route>
 
-          <Route path="/" element={<RequireAuth><Layout /></RequireAuth>}>
-            {/* 默认重定向到投递管理 */}
-            <Route index element={<Navigate to={ADMIN_HOME_PATH} replace />} />
+          {/* 默认入口：面向面试者的招聘门户（后台需通过 /admin 访问） */}
+          <Route path="/" element={<Navigate to={ROUTES.careers} replace />} />
+
+          <Route element={<RequireAuth><Layout /></RequireAuth>}>
+            {/* 后台快捷入口：/admin 重定向到投递管理 */}
+            <Route path="admin" element={<Navigate to={ADMIN_HOME_PATH} replace />} />
 
             {/* 招聘管理 */}
             <Route path={ROUTES.adminDashboard.slice(1)} element={<RequireAuth roles={['ADMIN', 'HR']}><DashboardPage /></RequireAuth>} />
@@ -290,6 +293,9 @@ function App() {
             {/* 问答助手（知识库聊天） */}
             <Route path="knowledgebase/chat" element={<KnowledgeBaseQueryPageWrapper />} />
           </Route>
+
+          {/* 未匹配路径统一回到面试者门户 */}
+          <Route path="*" element={<Navigate to={ROUTES.careers} replace />} />
 
         </Routes>
       </Suspense>

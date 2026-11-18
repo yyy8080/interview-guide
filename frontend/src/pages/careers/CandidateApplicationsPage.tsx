@@ -16,6 +16,9 @@ import { getErrorMessage } from '../../api/request';
 import CandidateAssessmentFeedbackCard from '../../components/CandidateAssessmentFeedbackCard';
 import CandidateLevelSelector from '../../components/CandidateLevelSelector';
 import ConfirmDialog from '../../components/ConfirmDialog';
+import AiWaitingOverlay from '../../components/waiting/AiWaitingOverlay';
+import AiWaitingPanel from '../../components/waiting/AiWaitingPanel';
+import { EVALUATION_TIPS, GENERAL_WAITING_TIPS } from '../../components/waiting/waitingTips';
 import { ROUTES } from '../../constants/routes';
 import { formatDateTime } from '../../utils/date';
 import { isCandidateAuthenticated } from '../../utils/candidateStorage';
@@ -26,6 +29,10 @@ import {
   type CandidateApplication,
   type CandidateStage,
 } from '../../types/recruitment';
+
+/** AI 初筛 / 评估进行中的静默轮询间隔与上限（约 3 分钟） */
+const POLL_INTERVAL_MS = 6000;
+const POLL_MAX_ATTEMPTS = 30;
 
 const STAGE_BADGE: Record<CandidateStage, string> = {
   SCREENING: 'bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300',
@@ -54,6 +61,7 @@ export default function CandidateApplicationsPage() {
   const [resubmitFile, setResubmitFile] = useState<File | null>(null);
   const [resubmitLevel, setResubmitLevel] = useState<JobDifficulty>('mid');
   const [confirmResubmitId, setConfirmResubmitId] = useState<number | null>(null);
+  const [resubmitting, setResubmitting] = useState(false);
 
   const loadList = useCallback(async () => {
     setLoading(true);
@@ -73,6 +81,27 @@ export default function CandidateApplicationsPage() {
       loadList();
     }
   }, [authed, loadList]);
+
+  // AI 初筛 / 评估进行中：静默轮询刷新进度（不打断页面，最多约 3 分钟）
+  const hasPendingAi = items.some(item => item.stage === 'SCREENING' || item.stage === 'UNDER_REVIEW');
+  useEffect(() => {
+    if (!authed || !hasPendingAi) return;
+    let attempts = 0;
+    const timer = window.setInterval(() => {
+      attempts += 1;
+      if (attempts > POLL_MAX_ATTEMPTS) {
+        window.clearInterval(timer);
+        return;
+      }
+      candidateApi
+        .listApplications()
+        .then(data => setItems(data))
+        .catch(() => {
+          // 静默刷新失败时保留当前数据
+        });
+    }, POLL_INTERVAL_MS);
+    return () => window.clearInterval(timer);
+  }, [authed, hasPendingAi]);
 
   if (!authed) {
     return (
@@ -129,37 +158,39 @@ export default function CandidateApplicationsPage() {
     }
     setActingId(id);
     setError(null);
+    // 先关闭确认框，改由等待浮层展示上传进度
+    setConfirmResubmitId(null);
+    setResubmitting(true);
     try {
       const updated = await candidateApi.resubmitResume(id, {
         file: resubmitFile,
         candidateLevel: resubmitLevel,
       });
       setItems(prev => prev.map(item => (item.id === id ? updated : item)));
-      setConfirmResubmitId(null);
       setResubmitOpenId(null);
       setResubmitFile(null);
       showNotice('已重新提交简历，系统正在重新进行 AI 简历初筛');
     } catch (err) {
-      setConfirmResubmitId(null);
       setError(getErrorMessage(err));
     } finally {
+      setResubmitting(false);
       setActingId(null);
     }
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 sm:space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-white">我的投递</h1>
-          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+        <div className="min-w-0">
+          <h1 className="text-xl font-bold text-slate-900 sm:text-2xl dark:text-white">我的投递</h1>
+          <p className="mt-1 text-xs text-slate-500 sm:text-sm dark:text-slate-400">
             查看简历初筛进度、完成在线 AI 面试或确认线下面试安排
           </p>
         </div>
         <button
           type="button"
           onClick={loadList}
-          className="btn-secondary flex items-center gap-1.5 rounded-xl px-4 py-2 text-sm"
+          className="btn-secondary flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-sm sm:px-4"
         >
           <RefreshCw className="h-4 w-4" />
           刷新进度
@@ -193,11 +224,11 @@ export default function CandidateApplicationsPage() {
       ) : (
         <div className="space-y-4">
           {items.map(app => (
-            <div key={app.id} className="dark-card space-y-4 p-6">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <div className="flex flex-wrap items-center gap-2.5">
-                    <h2 className="text-lg font-bold text-slate-900 dark:text-white">{app.jobTitle}</h2>
+            <div key={app.id} className="dark-card space-y-4 p-4 sm:p-6">
+              <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-start sm:justify-between">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2 sm:gap-2.5">
+                    <h2 className="text-base font-bold text-slate-900 sm:text-lg dark:text-white">{app.jobTitle}</h2>
                     <span
                       className={`rounded-full px-3 py-0.5 text-xs font-medium ${
                         app.stage === 'REJECTED' && app.screeningFeedback
@@ -244,7 +275,7 @@ export default function CandidateApplicationsPage() {
                 {(app.stage === 'INTERVIEW_PENDING' || app.stage === 'INTERVIEWING') && (
                   <Link
                     to={ROUTES.careerInterview(app.id)}
-                    className="btn-primary flex items-center gap-1.5 rounded-xl px-5 py-2 text-sm"
+                    className="btn-primary flex w-full items-center justify-center gap-1.5 rounded-xl px-5 py-2.5 text-sm sm:w-auto sm:py-2"
                   >
                     {app.stage === 'INTERVIEWING' ? '继续在线面试' : '开始在线面试'}
                     <ArrowRight className="h-4 w-4" />
@@ -254,9 +285,19 @@ export default function CandidateApplicationsPage() {
 
               {/* 各阶段说明 */}
               {app.stage === 'SCREENING' && (
-                <p className="text-sm text-slate-600 dark:text-slate-300">
-                  我们正在对您的简历进行智能筛选，筛选通过后将自动开启在线面试并发送邮件通知。
-                </p>
+                <div className="space-y-3">
+                  <p className="text-sm text-slate-600 dark:text-slate-300">
+                    我们正在对您的简历进行智能筛选，筛选通过后将自动开启在线面试并发送邮件通知。
+                  </p>
+                  <AiWaitingPanel
+                    variant="card"
+                    title="AI 正在智能初筛您的简历"
+                    description="结果出来后本页面会自动更新，您也可以先离开，稍后回来查看或留意邮件通知。"
+                    estimate="通常 1–3 分钟"
+                    tips={EVALUATION_TIPS}
+                    testId={`screening-waiting-${app.id}`}
+                  />
+                </div>
               )}
 
               {app.stage === 'INTERVIEW_PENDING' && (
@@ -476,19 +517,19 @@ export default function CandidateApplicationsPage() {
                   </div>
 
                   {rescheduleOpenId === app.id && (
-                    <div className="flex flex-wrap gap-2 pt-2">
+                    <div className="flex flex-col gap-2 pt-2 sm:flex-row">
                       <input
                         value={rescheduleNote}
                         onChange={e => setRescheduleNote(e.target.value)}
                         maxLength={500}
                         placeholder="请填写改期原因及您方便参加的日期时间段"
-                        className="min-w-[220px] flex-1 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                        className="w-full min-w-0 flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs dark:border-slate-700 dark:bg-slate-800 dark:text-white"
                       />
                       <button
                         type="button"
                         disabled={actingId === app.id}
                         onClick={() => handleReschedule(app.id)}
-                        className="btn-primary rounded-xl px-4 py-1.5 text-xs"
+                        className="btn-primary rounded-xl px-4 py-2 text-xs sm:py-1.5"
                       >
                         提交申请
                       </button>
@@ -517,6 +558,15 @@ export default function CandidateApplicationsPage() {
           }
         }}
         onCancel={() => setConfirmResubmitId(null)}
+      />
+
+      <AiWaitingOverlay
+        open={resubmitting}
+        title="正在上传修改后的简历"
+        description="上传完成后系统将自动重新进行 AI 简历初筛，结果会实时更新在本页面。"
+        estimate="通常 5–20 秒"
+        tips={GENERAL_WAITING_TIPS}
+        testId="resubmit-uploading-overlay"
       />
     </div>
   );

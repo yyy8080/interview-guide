@@ -267,3 +267,37 @@
     @apply border-slate-800/30;
   }
 }
+
+/* ========== 候选人门户移动端适配与 AI 等待动效 ========== */
+@keyframes ig-indeterminate {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(300%); }
+}
+
+.ig-indeterminate-bar {
+  animation: ig-indeterminate 1.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ig-indeterminate-bar {
+    animation: none;
+    width: 100%;
+    opacity: 0.6;
+  }
+}
+
+.candidate-portal {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* iOS Safari 在输入框字号小于 16px 时会自动放大页面，移动端统一使用 16px */
+@media (max-width: 639px) {
+  .candidate-portal input[type='text'],
+  .candidate-portal input[type='email'],
+  .candidate-portal input[type='tel'],
+  .candidate-portal input:not([type]),
+  .candidate-portal textarea,
+  .candidate-portal select {
+    font-size: 16px;
+  }
+}

@@ -23,6 +23,10 @@ import CandidateLevelSelector from '../../components/CandidateLevelSelector';
 import CandidatePreTestProfileForm from '../../components/CandidatePreTestProfileForm';
 import ConfirmDialog from '../../components/ConfirmDialog';
 import ProctorWatermark from '../../components/ProctorWatermark';
+import AiWaitingOverlay from '../../components/waiting/AiWaitingOverlay';
+import AiWaitingPanel from '../../components/waiting/AiWaitingPanel';
+import AiThinkingHint from '../../components/waiting/AiThinkingHint';
+import { EVALUATION_TIPS, QUESTION_GENERATION_TIPS } from '../../components/waiting/waitingTips';
 import { useProctorMonitor } from '../../hooks/useProctorMonitor';
 import { AnswerTelemetryTracker } from '../../utils/proctorTelemetry';
 import { ROUTES } from '../../constants/routes';
@@ -82,6 +86,13 @@ export default function CandidateInterviewPage() {
   const [telemetry] = useState(() => new AnswerTelemetryTracker());
   const currentQuestionIndexRef = useRef<number | undefined>(undefined);
   const writtenFocusIndexRef = useRef<number | undefined>(undefined);
+  const chatScrollRef = useRef<HTMLDivElement | null>(null);
+
+  // 文字面试：新题目 / AI 思考状态变化时，聊天区自动滚动到底部（手机端尤为重要）
+  useEffect(() => {
+    const el = chatScrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [history.length, submitting]);
 
   const applyQuestion = (q: CandidateQuestion | null) => {
     if (!q) return;
@@ -192,7 +203,7 @@ export default function CandidateInterviewPage() {
     };
     void poll();
     const timer = window.setInterval(() => {
-      if (attempts >= 12) {
+      if (attempts >= 45) {
         window.clearInterval(timer);
         return;
       }
@@ -287,6 +298,7 @@ export default function CandidateInterviewPage() {
   }
 
   const handleStart = async () => {
+    setConfirmStartOpen(false);
     setStarting(true);
     setError(null);
     try {
@@ -294,7 +306,6 @@ export default function CandidateInterviewPage() {
         aiExperience,
         specialties,
       });
-      setConfirmStartOpen(false);
       setState(started);
       if (started.candidateLevel) {
         setChosenLevel(started.candidateLevel);
@@ -308,7 +319,6 @@ export default function CandidateInterviewPage() {
       setRemaining(started.remainingSeconds);
       applyQuestion(started.currentQuestion);
     } catch (err) {
-      setConfirmStartOpen(false);
       setError(getErrorMessage(err));
     } finally {
       setStarting(false);
@@ -405,12 +415,12 @@ export default function CandidateInterviewPage() {
     if (app.stage === 'REJECTED') {
       return (
         <div className="mx-auto max-w-3xl space-y-5" data-testid="interview-rejected-result">
-          <div className="dark-card space-y-5 p-6 sm:p-8 text-center">
+          <div className="dark-card space-y-5 p-4 text-center sm:p-8">
             <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-rose-50 text-rose-600 dark:bg-rose-900/30 dark:text-rose-400">
               <XCircle className="h-8 w-8" />
             </div>
             <div>
-              <h1 className="text-xl font-bold text-slate-900 dark:text-white">
+              <h1 className="text-lg font-bold text-slate-900 sm:text-xl dark:text-white">
                 {app.jobTitle} · 本次评估未通过
               </h1>
               <p className="mt-1.5 text-sm text-slate-600 dark:text-slate-300">
@@ -419,10 +429,12 @@ export default function CandidateInterviewPage() {
             </div>
 
             {app.assessmentFeedback ? (
-              <CandidateAssessmentFeedbackCard
-                applicationId={app.id}
-                feedback={app.assessmentFeedback}
-              />
+              <div className="text-left">
+                <CandidateAssessmentFeedbackCard
+                  applicationId={app.id}
+                  feedback={app.assessmentFeedback}
+                />
+              </div>
             ) : (
               <p className="text-sm text-slate-500 dark:text-slate-400">
                 感谢您的关注与投入，经综合评估本次未能进入下一环节，祝您求职顺利。
@@ -430,7 +442,7 @@ export default function CandidateInterviewPage() {
             )}
 
             <div className="pt-1">
-              <Link to={ROUTES.careerMe} className="btn-primary inline-block rounded-xl px-6 py-2.5 text-sm">
+              <Link to={ROUTES.careerMe} className="btn-primary block rounded-xl px-6 py-2.5 text-sm sm:inline-block">
                 返回我的投递
               </Link>
             </div>
@@ -439,29 +451,48 @@ export default function CandidateInterviewPage() {
       );
     }
 
+    const evaluating =
+      app.stage === 'UNDER_REVIEW' || app.stage === 'INTERVIEWING' || app.stage === 'INTERVIEW_PENDING';
+
     return (
-      <div className="dark-card mx-auto max-w-xl space-y-4 p-8 text-center">
-        <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-emerald-50 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400">
-          <CheckCircle2 className="h-8 w-8" />
-        </div>
-        <h1 className="text-xl font-bold text-slate-900 dark:text-white">在线面试已完成</h1>
-        <p className="text-sm text-slate-600 dark:text-slate-300">
-          感谢您参加「{app.jobTitle}」岗位的在线面试。系统正在整理评估报告并提交 HR 复核，您也可稍后在「我的投递」查看评估进度或题目解析。
-        </p>
-        <div className="flex flex-wrap items-center justify-center gap-3 pt-1">
-          <button
-            type="button"
-            data-testid="refresh-interview-result-btn"
-            disabled={refreshingResult}
-            onClick={() => void refreshApplication()}
-            className="btn-secondary inline-flex items-center gap-1.5 rounded-xl px-4 py-2.5 text-sm disabled:opacity-60"
-          >
-            <RefreshCw className={`h-4 w-4 ${refreshingResult ? 'animate-spin' : ''}`} />
-            刷新评估状态
-          </button>
-          <Link to={ROUTES.careerMe} className="btn-primary inline-block rounded-xl px-6 py-2.5 text-sm">
-            返回我的投递
-          </Link>
+      <div className="mx-auto max-w-xl space-y-4">
+        <div className="dark-card space-y-4 p-5 text-center sm:p-8">
+          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-emerald-50 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400">
+            <CheckCircle2 className="h-8 w-8" />
+          </div>
+          <h1 className="text-xl font-bold text-slate-900 dark:text-white">在线面试已完成</h1>
+          <p className="text-sm text-slate-600 dark:text-slate-300">
+            感谢您参加「{app.jobTitle}」岗位的在线面试。系统正在整理评估报告并提交 HR 复核，您也可稍后在「我的投递」查看评估进度或题目解析。
+          </p>
+
+          {evaluating && (
+            <div className="text-left">
+              <AiWaitingPanel
+                variant="card"
+                title="AI 正在生成您的面试评估报告"
+                description="您可以留在本页玩个小游戏，也可以离开页面，稍后在「我的投递」查看结果。"
+                estimate="通常需要 1–3 分钟"
+                tips={EVALUATION_TIPS}
+                testId="interview-evaluating-panel"
+              />
+            </div>
+          )}
+
+          <div className="flex flex-col-reverse items-stretch justify-center gap-3 pt-1 sm:flex-row sm:items-center">
+            <button
+              type="button"
+              data-testid="refresh-interview-result-btn"
+              disabled={refreshingResult}
+              onClick={() => void refreshApplication()}
+              className="btn-secondary inline-flex items-center justify-center gap-1.5 rounded-xl px-4 py-2.5 text-sm disabled:opacity-60"
+            >
+              <RefreshCw className={`h-4 w-4 ${refreshingResult ? 'animate-spin' : ''}`} />
+              刷新评估状态
+            </button>
+            <Link to={ROUTES.careerMe} className="btn-primary inline-block rounded-xl px-6 py-2.5 text-center text-sm">
+              返回我的投递
+            </Link>
+          </div>
         </div>
       </div>
     );
@@ -470,7 +501,7 @@ export default function CandidateInterviewPage() {
   const reminderToast = reminder ? (
     <div
       role="status"
-      className="fixed right-4 top-20 z-50 flex items-center gap-2 rounded-xl bg-white/95 px-4 py-2.5 text-sm text-slate-700 shadow-lg ring-1 ring-slate-200 dark:bg-slate-800/95 dark:text-slate-200 dark:ring-slate-700"
+      className="fixed left-3 right-3 top-[calc(4rem+env(safe-area-inset-top))] z-50 flex items-center justify-between gap-2 rounded-xl bg-white/95 px-4 py-2.5 text-sm text-slate-700 shadow-lg ring-1 ring-slate-200 sm:left-auto sm:right-4 sm:top-20 sm:justify-start dark:bg-slate-800/95 dark:text-slate-200 dark:ring-slate-700"
     >
       <span>{reminder}</span>
       <button
@@ -521,7 +552,7 @@ export default function CandidateInterviewPage() {
   if (!isInterviewing) {
     return (
       <div className="mx-auto max-w-2xl space-y-6">
-        <div className="dark-card space-y-5 p-6 sm:p-8">
+        <div className="dark-card space-y-5 p-4 sm:p-8">
           <div>
             {state?.writtenTestEnabled && (
               <span className="mb-1 inline-block rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">
@@ -644,14 +675,14 @@ export default function CandidateInterviewPage() {
               诚信面试须知
             </div>
             <ul className="list-disc space-y-1 pl-5">
-              <li>点击「开始在线面试」后由 AI 按您所选定位生成面试题目并立即开始计时，请确保网络通畅、环境安静。</li>
+              <li>点击「开始在线面试」后由 AI 按您所选定位生成面试题目，题目生成完毕后开始计时（等待生成的时间不计入作答时长），请确保网络通畅、环境安静。</li>
               <li>语音面试将重点围绕您简历中填写的项目、模块与成果细节提问以核验简历真实性，请结合本人真实经历作答。</li>
               <li>本次面试不会开启摄像头，也无需全屏；系统后台会无感记录离开页面、粘贴等作答行为并纳入提交审查。</li>
             </ul>
           </div>
 
-          <div className="flex justify-end gap-3">
-            <Link to={ROUTES.careerMe} className="btn-secondary rounded-xl px-5 py-2.5 text-sm">
+          <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+            <Link to={ROUTES.careerMe} className="btn-secondary rounded-xl px-5 py-2.5 text-center text-sm">
               稍后再面
             </Link>
             <button
@@ -659,7 +690,7 @@ export default function CandidateInterviewPage() {
               data-testid="start-interview-btn"
               disabled={starting}
               onClick={() => setConfirmStartOpen(true)}
-              className="btn-primary flex items-center gap-2 rounded-xl px-6 py-2.5 text-sm font-medium disabled:opacity-60"
+              className="btn-primary flex items-center justify-center gap-2 rounded-xl px-6 py-2.5 text-sm font-medium disabled:opacity-60"
             >
               {starting && <Loader2 className="h-4 w-4 animate-spin" />}
               {starting ? '正在生成面试题目…' : '开始在线面试'}
@@ -680,6 +711,19 @@ export default function CandidateInterviewPage() {
           onConfirm={() => void handleStart()}
           onCancel={() => setConfirmStartOpen(false)}
         />
+
+        <AiWaitingOverlay
+          open={starting}
+          title={chosenMode === 'VOICE' ? 'AI 语音面试官正在准备开场' : 'AI 正在为您生成面试题目'}
+          description={
+            chosenMode === 'VOICE'
+              ? '正在结合您的简历与所选定位准备追问方向，准备就绪后将自动进入语音面试，计时从进入后开始。'
+              : '正在结合岗位要求、您的简历与所选定位生成题目，题目生成后才开始计时，等待时间不计入作答时长。'
+          }
+          estimate="通常需要 15–60 秒"
+          tips={QUESTION_GENERATION_TIPS}
+          testId="interview-generating-overlay"
+        />
       </div>
     );
   }
@@ -689,10 +733,10 @@ export default function CandidateInterviewPage() {
   // 进行中：语音模式
   if (state.mode === 'VOICE' && state.voiceSessionId) {
     return (
-      <div className="space-y-4">
+      <div className="space-y-3 sm:space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="flex flex-wrap items-center gap-2">
-            <h1 className="text-lg font-bold text-slate-900 dark:text-white">
+          <div className="flex min-w-0 flex-wrap items-center gap-1.5 sm:gap-2">
+            <h1 className="text-base font-bold text-slate-900 sm:text-lg dark:text-white">
               {state.jobTitle} · 语音面试进行中
             </h1>
             <span
@@ -701,15 +745,15 @@ export default function CandidateInterviewPage() {
             >
               定位：{JOB_DIFFICULTY_LABELS[activeLevel]}
             </span>
-            <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+            <span className="hidden rounded-full bg-slate-100 px-2.5 py-0.5 text-xs text-slate-600 sm:inline dark:bg-slate-800 dark:text-slate-300">
               含简历真实性追问
             </span>
-            <span className="rounded-full bg-amber-50 px-2.5 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900/30 dark:text-amber-300">
+            <span className="hidden rounded-full bg-amber-50 px-2.5 py-0.5 text-xs font-medium text-amber-800 sm:inline dark:bg-amber-900/30 dark:text-amber-300">
               禁止搜题 · 后台提交审查
             </span>
           </div>
           {remaining != null && (
-            <span className="flex items-center gap-1.5 rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700 dark:bg-slate-800 dark:text-slate-200">
+            <span className="flex items-center gap-1.5 rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold tabular-nums text-slate-700 dark:bg-slate-800 dark:text-slate-200">
               <Clock className="h-3.5 w-3.5 text-primary-500" />
               剩余 {formatSeconds(remaining)}
             </span>
@@ -724,6 +768,14 @@ export default function CandidateInterviewPage() {
         />
         {reminderToast}
         {state.watermarkText && <ProctorWatermark text={state.watermarkText} />}
+        <AiWaitingOverlay
+          open={completing}
+          delayMs={600}
+          title="正在结束语音面试并提交"
+          description="正在保存对话记录并提交评估，完成后将自动跳转结果页。"
+          allowGame={false}
+          testId="voice-ending-overlay"
+        />
       </div>
     );
   }
@@ -736,46 +788,51 @@ export default function CandidateInterviewPage() {
       : 0;
 
   return (
-    <div className="mx-auto max-w-3xl space-y-4">
-      <div className="dark-card flex flex-wrap items-center justify-between gap-3 p-4">
-        <div>
-          <div className="flex flex-wrap items-center gap-2">
-            <h1 className="text-base font-bold text-slate-900 dark:text-white">{state.jobTitle} · 在线文字面试</h1>
-            <span
-              data-testid="interview-active-level"
-              className="rounded-full bg-primary-50 px-2.5 py-0.5 text-xs font-medium text-primary-700 dark:bg-primary-900/30 dark:text-primary-300"
-            >
-              定位：{JOB_DIFFICULTY_LABELS[activeLevel]}
-            </span>
-            <span className="rounded-full bg-amber-50 px-2.5 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900/30 dark:text-amber-300">
-              禁止搜题 · 后台提交审查
-            </span>
+    <div className="mx-auto max-w-3xl space-y-3 sm:space-y-4">
+      <div className="dark-card space-y-2.5 p-3 sm:p-4">
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+              <h1 className="text-sm font-bold text-slate-900 sm:text-base dark:text-white">{state.jobTitle} · 在线文字面试</h1>
+              <span
+                data-testid="interview-active-level"
+                className="rounded-full bg-primary-50 px-2 py-0.5 text-[11px] font-medium text-primary-700 sm:px-2.5 sm:text-xs dark:bg-primary-900/30 dark:text-primary-300"
+              >
+                定位：{JOB_DIFFICULTY_LABELS[activeLevel]}
+              </span>
+              <span className="hidden rounded-full bg-amber-50 px-2.5 py-0.5 text-xs font-medium text-amber-800 sm:inline dark:bg-amber-900/30 dark:text-amber-300">
+                禁止搜题 · 后台提交审查
+              </span>
+            </div>
+            <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+              第 {currentQ ? currentQ.questionIndex + 1 : state.currentQuestionIndex} / {state.totalQuestions} 题（{progress}%）
+            </p>
           </div>
-          <p className="text-xs text-slate-500 dark:text-slate-400">
-            第 {currentQ ? currentQ.questionIndex + 1 : state.currentQuestionIndex} / {state.totalQuestions} 题（{progress}%）
-          </p>
-        </div>
 
-        <div className="flex items-center gap-3">
-          {remaining != null && (
-            <span
-              className={`flex items-center gap-1 rounded-full px-3 py-1 text-xs font-semibold ${
-                remaining < 180
-                  ? 'bg-rose-50 text-rose-600 dark:bg-rose-900/30 dark:text-rose-300'
-                  : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200'
-              }`}
+          <div className="flex shrink-0 items-center gap-2 sm:gap-3">
+            {remaining != null && (
+              <span
+                className={`flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold tabular-nums sm:px-3 ${
+                  remaining < 180
+                    ? 'bg-rose-50 text-rose-600 dark:bg-rose-900/30 dark:text-rose-300'
+                    : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200'
+                }`}
+              >
+                <Clock className="h-3.5 w-3.5" />
+                {formatSeconds(remaining)}
+              </span>
+            )}
+            <button
+              type="button"
+              onClick={() => setConfirmCompleteOpen(true)}
+              className="whitespace-nowrap rounded-lg px-1.5 py-1 text-xs font-medium text-slate-500 hover:text-rose-600 dark:text-slate-400"
             >
-              <Clock className="h-3.5 w-3.5" />
-              {formatSeconds(remaining)}
-            </span>
-          )}
-          <button
-            type="button"
-            onClick={() => setConfirmCompleteOpen(true)}
-            className="text-xs font-medium text-slate-500 hover:text-rose-600 dark:text-slate-400"
-          >
-            提前交卷
-          </button>
+              提前交卷
+            </button>
+          </div>
+        </div>
+        <div className="h-1 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-700/60">
+          <div className="h-full rounded-full bg-primary-500 transition-all" style={{ width: `${progress}%` }} />
         </div>
       </div>
 
@@ -786,13 +843,16 @@ export default function CandidateInterviewPage() {
       )}
 
       {/* 问答对话流 */}
-      <div className="dark-card max-h-[420px] space-y-4 overflow-y-auto p-6">
+      <div
+        ref={chatScrollRef}
+        className="dark-card max-h-[45dvh] space-y-4 overflow-y-auto overscroll-contain p-4 sm:max-h-[420px] sm:p-6"
+      >
         {history.map(item => (
           <div key={item.questionIndex} className="space-y-3">
             <div
               {...protectQuestion}
               data-testid="question-stem"
-              className="select-none rounded-2xl bg-slate-50 p-4 text-sm text-slate-800 dark:bg-slate-800/70 dark:text-slate-100"
+              className="select-none rounded-2xl bg-slate-50 p-3.5 text-sm text-slate-800 sm:p-4 dark:bg-slate-800/70 dark:text-slate-100"
             >
               <div className="mb-1 flex items-center gap-2 text-xs text-primary-600 dark:text-primary-400">
                 <span className="font-semibold">问题 {item.questionIndex + 1}</span>
@@ -802,7 +862,7 @@ export default function CandidateInterviewPage() {
             </div>
 
             {item.answer && (
-              <div className="ml-8 rounded-2xl bg-primary-500 px-4 py-3 text-sm text-white whitespace-pre-wrap">
+              <div className="ml-6 whitespace-pre-wrap rounded-2xl bg-primary-500 px-4 py-3 text-sm text-white sm:ml-8">
                 {item.answer}
               </div>
             )}
@@ -810,11 +870,12 @@ export default function CandidateInterviewPage() {
         ))}
       </div>
 
-      {/* 作答框 */}
+      {/* 作答框（移动端吸底，便于软键盘弹出时继续作答） */}
       {currentQ && (
-        <div className="dark-card space-y-3 p-4">
+        <div className="dark-card sticky bottom-[calc(0.5rem+env(safe-area-inset-bottom))] z-10 space-y-3 p-3 sm:static sm:p-4">
+          <AiThinkingHint active={submitting} testId="text-interview-thinking" />
           <textarea
-            rows={5}
+            rows={4}
             value={answer}
             disabled={submitting}
             onChange={e => {
@@ -828,14 +889,14 @@ export default function CandidateInterviewPage() {
               }
             }}
             placeholder="请输入您的回答…（支持 Ctrl / Cmd + Enter 提交本题）"
-            className="w-full rounded-xl border border-slate-200 bg-white p-3.5 text-sm text-slate-900 focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+            className="w-full rounded-xl border border-slate-200 bg-white p-3 text-sm text-slate-900 focus:border-primary-500 focus:outline-none sm:p-3.5 dark:border-slate-700 dark:bg-slate-800 dark:text-white"
           />
           <div className="flex justify-end">
             <button
               type="button"
               disabled={!answer.trim() || submitting}
               onClick={handleSubmitAnswer}
-              className="btn-primary flex items-center gap-2 rounded-xl px-6 py-2.5 text-sm font-medium disabled:opacity-50"
+              className="btn-primary flex w-full items-center justify-center gap-2 rounded-xl px-6 py-2.5 text-sm font-medium disabled:opacity-50 sm:w-auto"
             >
               {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
               {currentQ.questionIndex + 1 >= state.totalQuestions ? '提交并完成面试' : '提交本题，进入下一题'}

@@ -7,6 +7,8 @@ import { candidateApi } from '../../api/candidate';
 import { publicJobApi } from '../../api/job';
 import { getErrorMessage } from '../../api/request';
 import ConfirmDialog from '../../components/ConfirmDialog';
+import AiWaitingOverlay from '../../components/waiting/AiWaitingOverlay';
+import { GENERAL_WAITING_TIPS } from '../../components/waiting/waitingTips';
 import { ROUTES } from '../../constants/routes';
 import { formatDateTime } from '../../utils/date';
 import {
@@ -124,6 +126,8 @@ export default function CareerJobDetailPage() {
 
   const executeApply = async () => {
     if (!job || !file) return;
+    // 先关闭确认框，改由等待浮层展示上传解析进度
+    setConfirmApplyOpen(false);
     setSubmitting(true);
     setApplyError(null);
     try {
@@ -135,7 +139,6 @@ export default function CareerJobDetailPage() {
         candidateLevel,
         consent,
       });
-      setConfirmApplyOpen(false);
       if (candidate) {
         updateStoredCandidate({
           ...candidate,
@@ -149,7 +152,6 @@ export default function CareerJobDetailPage() {
         navigate(ROUTES.careerMe);
       }
     } catch (err) {
-      setConfirmApplyOpen(false);
       setApplyError(getErrorMessage(err));
     } finally {
       setSubmitting(false);
@@ -178,7 +180,7 @@ export default function CareerJobDetailPage() {
   const loginRedirect = `${ROUTES.careerLogin}?redirect=${encodeURIComponent(ROUTES.careerJob(job.id))}`;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 sm:space-y-6">
       <Link
         to={ROUTES.careers}
         className="inline-flex items-center gap-1 text-sm text-slate-500 hover:text-primary-600 dark:text-slate-400"
@@ -187,11 +189,11 @@ export default function CareerJobDetailPage() {
         全部职位
       </Link>
 
-      <div className="dark-card space-y-3 p-6">
+      <div className="dark-card space-y-3 p-4 sm:p-6">
         <div className="flex flex-wrap items-center gap-3">
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-white">{job.title}</h1>
+          <h1 className="text-xl font-bold text-slate-900 sm:text-2xl dark:text-white">{job.title}</h1>
           {job.salaryRange && (
-            <span className="text-lg font-semibold text-primary-600 dark:text-primary-400">{job.salaryRange}</span>
+            <span className="text-base font-semibold text-primary-600 sm:text-lg dark:text-primary-400">{job.salaryRange}</span>
           )}
           {job.difficulty && (
             <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">
@@ -222,14 +224,14 @@ export default function CareerJobDetailPage() {
         </div>
       </div>
 
-      <div className="dark-card p-6">
+      <div className="dark-card p-4 sm:p-6">
         <h2 className="mb-3 text-base font-semibold text-slate-900 dark:text-white">职位描述</h2>
         <div className="prose prose-slate max-w-none text-sm dark:prose-invert">
           <ReactMarkdown remarkPlugins={[remarkGfm]}>{job.jdText}</ReactMarkdown>
         </div>
       </div>
 
-      <div className="dark-card space-y-3 p-6">
+      <div className="dark-card space-y-3 p-4 sm:p-6">
         <h2 className="flex items-center gap-2 text-base font-semibold text-slate-900 dark:text-white">
           <Info className="h-5 w-5 text-primary-500" />
           应聘流程说明
@@ -246,11 +248,11 @@ export default function CareerJobDetailPage() {
       </div>
 
       {/* 投递区域 */}
-      <div id="apply" className="dark-card space-y-4 p-6">
+      <div id="apply" className="dark-card space-y-4 p-4 sm:p-6">
         <h2 className="text-base font-semibold text-slate-900 dark:text-white">投递该职位</h2>
 
         {!candidate ? (
-          <div className="flex flex-wrap items-center justify-between gap-4 rounded-xl bg-slate-50 p-4 dark:bg-slate-800/60">
+          <div className="flex flex-wrap items-center justify-between gap-4 rounded-xl bg-slate-50 p-3.5 sm:p-4 dark:bg-slate-800/60">
             <div className="space-y-1">
               <p className="text-sm text-slate-700 dark:text-slate-200">
                 本岗位实行受邀面试制：请先使用收到面试邀请邮件的邮箱完成验证后投递简历
@@ -259,7 +261,10 @@ export default function CareerJobDetailPage() {
                 提示：非邀请邮箱不允许投递简历面试；提交简历仅有两次机会且不允许造假，否则会直接不通过。
               </p>
             </div>
-            <Link to={loginRedirect} className="btn-primary flex items-center gap-2 rounded-xl px-6 py-2.5 text-sm">
+            <Link
+              to={loginRedirect}
+              className="btn-primary flex w-full items-center justify-center gap-2 rounded-xl px-6 py-3 text-sm sm:w-auto sm:py-2.5"
+            >
               <Send className="h-4 w-4" />
               验证受邀邮箱并投递
             </Link>
@@ -386,7 +391,7 @@ export default function CareerJobDetailPage() {
               <button
                 type="submit"
                 disabled={submitting}
-                className="btn-primary flex items-center gap-2 rounded-xl px-8 py-2.5 text-sm font-medium disabled:opacity-60"
+                className="btn-primary flex w-full items-center justify-center gap-2 rounded-xl px-8 py-3 text-sm font-medium disabled:opacity-60 sm:w-auto sm:py-2.5"
               >
                 {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                 {submitting ? '正在上传并提交…' : '提交简历'}
@@ -408,6 +413,15 @@ export default function CareerJobDetailPage() {
         loading={submitting}
         onConfirm={() => void executeApply()}
         onCancel={() => setConfirmApplyOpen(false)}
+      />
+
+      <AiWaitingOverlay
+        open={submitting}
+        title="正在上传并解析您的简历"
+        description="系统正在安全上传简历并提取关键信息，完成后将自动跳转，请勿关闭或刷新页面。"
+        estimate="通常 5–20 秒"
+        tips={GENERAL_WAITING_TIPS}
+        testId="apply-uploading-overlay"
       />
     </div>
   );

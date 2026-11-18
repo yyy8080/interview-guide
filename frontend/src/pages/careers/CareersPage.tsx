@@ -22,7 +22,7 @@ export default function CareersPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-slate-900 dark:text-white sm:text-3xl">开放职位</h1>
+        <h1 className="text-xl font-bold text-slate-900 dark:text-white sm:text-3xl">开放职位</h1>
         <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
           实行受邀面试制：收到面试邀请邮件的候选人可验证受邀邮箱投递对应岗位简历并完成在线 AI 面试（非受邀邮箱不允许投递简历与参加面试）
         </p>
@@ -43,11 +43,11 @@ export default function CareersPage() {
             <Link
               key={job.id}
               to={ROUTES.careerJob(job.id)}
-              className="dark-card group flex items-center gap-4 p-5 transition-shadow hover:shadow-md"
+              className="dark-card group flex items-center gap-3 p-4 transition-shadow hover:shadow-md sm:gap-4 sm:p-5"
             >
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">
-                  <h2 className="text-lg font-semibold text-slate-900 group-hover:text-primary-600 dark:text-white dark:group-hover:text-primary-400">
+                  <h2 className="text-base font-semibold text-slate-900 sm:text-lg group-hover:text-primary-600 dark:text-white dark:group-hover:text-primary-400">
                     {job.title}
                   </h2>
                   {job.salaryRange && <span className="text-sm font-semibold text-primary-600 dark:text-primary-400">{job.salaryRange}</span>}

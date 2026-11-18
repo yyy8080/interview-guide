@@ -15,6 +15,8 @@ import { getErrorMessage } from '../api/request';
 import ConfirmDialog from './ConfirmDialog';
 import CandidateLevelSelector from './CandidateLevelSelector';
 import CandidatePreTestProfileForm from './CandidatePreTestProfileForm';
+import AiWaitingOverlay from './waiting/AiWaitingOverlay';
+import { QUESTION_GENERATION_TIPS } from './waiting/waitingTips';
 import { ROUTES } from '../constants/routes';
 import { JOB_DIFFICULTY_LABELS, type JobDifficulty } from '../types/job';
 import {
@@ -215,6 +217,7 @@ export default function CandidateWrittenTest({
   }, [remaining, test?.status, handleSubmit]);
 
   const handleStart = async () => {
+    setConfirmStartOpen(false);
     setStarting(true);
     setError(null);
     try {
@@ -222,10 +225,8 @@ export default function CandidateWrittenTest({
         aiExperience,
         specialties,
       });
-      setConfirmStartOpen(false);
       applyTestState(started);
     } catch (err) {
-      setConfirmStartOpen(false);
       setError(getErrorMessage(err));
     } finally {
       setStarting(false);
@@ -345,8 +346,8 @@ export default function CandidateWrittenTest({
             </ul>
           </div>
 
-          <div className="flex justify-end gap-3">
-            <Link to={ROUTES.careerMe} className="btn-secondary rounded-xl px-5 py-2.5 text-sm">
+          <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+            <Link to={ROUTES.careerMe} className="btn-secondary rounded-xl px-5 py-2.5 text-center text-sm">
               稍后作答
             </Link>
             <button
@@ -354,7 +355,7 @@ export default function CandidateWrittenTest({
               data-testid="start-written-btn"
               disabled={starting}
               onClick={() => setConfirmStartOpen(true)}
-              className="btn-primary flex items-center gap-2 rounded-xl px-6 py-2.5 text-sm font-medium disabled:opacity-60"
+              className="btn-primary flex items-center justify-center gap-2 rounded-xl px-6 py-2.5 text-sm font-medium disabled:opacity-60"
             >
               {starting && <Loader2 className="h-4 w-4 animate-spin" />}
               {starting ? '正在生成笔试题…' : '开始在线笔试'}
@@ -375,6 +376,15 @@ export default function CandidateWrittenTest({
           onConfirm={() => void handleStart()}
           onCancel={() => setConfirmStartOpen(false)}
         />
+
+        <AiWaitingOverlay
+          open={starting}
+          title="AI 正在为您生成专属笔试题"
+          description="将结合岗位要求与您选择的定位出题，题目生成后才开始倒计时，等待时间不计入作答时长。"
+          estimate="通常需要 20–60 秒"
+          tips={QUESTION_GENERATION_TIPS}
+          testId="written-generating-overlay"
+        />
       </div>
     );
   }
@@ -383,56 +393,64 @@ export default function CandidateWrittenTest({
   const activeLevel = test.candidateLevel ?? candidateLevel;
   return (
     <div className="mx-auto max-w-3xl space-y-4" data-testid="written-active-panel">
-      <div className="dark-card sticky top-16 z-20 flex flex-wrap items-center justify-between gap-3 p-4">
-        <div>
-          <div className="flex flex-wrap items-center gap-2">
-            <h1 className="text-base font-bold text-slate-900 dark:text-white">{jobTitle} · 在线笔试</h1>
-            <span
-              data-testid="written-active-level"
-              className="rounded-full bg-primary-50 px-2.5 py-0.5 text-xs font-medium text-primary-700 dark:bg-primary-900/30 dark:text-primary-300"
-            >
-              定位：{JOB_DIFFICULTY_LABELS[activeLevel]}
-            </span>
-            <span className="rounded-full bg-amber-50 px-2.5 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900/30 dark:text-amber-300">
-              禁止搜题 · 后台提交审查
-            </span>
+      <div className="dark-card sticky top-[calc(3.5rem+env(safe-area-inset-top))] z-20 space-y-2.5 p-3 sm:top-[calc(4rem+env(safe-area-inset-top))] sm:p-4">
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+              <h1 className="truncate text-sm font-bold text-slate-900 sm:text-base dark:text-white">{jobTitle} · 在线笔试</h1>
+              <span
+                data-testid="written-active-level"
+                className="rounded-full bg-primary-50 px-2 py-0.5 text-[11px] font-medium text-primary-700 sm:px-2.5 sm:text-xs dark:bg-primary-900/30 dark:text-primary-300"
+              >
+                定位：{JOB_DIFFICULTY_LABELS[activeLevel]}
+              </span>
+              <span className="hidden rounded-full bg-amber-50 px-2.5 py-0.5 text-xs font-medium text-amber-800 sm:inline dark:bg-amber-900/30 dark:text-amber-300">
+                禁止搜题 · 后台提交审查
+              </span>
+            </div>
+            <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+              已答 {answeredCount} / {test.questions.length} 题
+              {savingHint === 'saving' && ' · 正在自动保存…'}
+              {savingHint === 'saved' && ' · 已自动保存'}
+            </p>
           </div>
-          <p className="text-xs text-slate-500 dark:text-slate-400">
-            已答 {answeredCount} / {test.questions.length} 题
-            {savingHint === 'saving' && ' · 正在自动保存…'}
-            {savingHint === 'saved' && ' · 已自动保存'}
-          </p>
-        </div>
 
-        <div className="flex items-center gap-3">
-          {remaining != null && (
-            <span
-              className={`flex items-center gap-1 rounded-full px-3 py-1 text-xs font-semibold ${
-                remaining < 180
-                  ? 'bg-rose-50 text-rose-600 dark:bg-rose-900/30 dark:text-rose-300'
-                  : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200'
-              }`}
+          <div className="flex shrink-0 items-center gap-2 sm:gap-3">
+            {remaining != null && (
+              <span
+                className={`flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold tabular-nums sm:px-3 ${
+                  remaining < 180
+                    ? 'bg-rose-50 text-rose-600 dark:bg-rose-900/30 dark:text-rose-300'
+                    : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200'
+                }`}
+              >
+                <Clock className="h-3.5 w-3.5" />
+                {formatSeconds(remaining)}
+              </span>
+            )}
+            <button
+              type="button"
+              data-testid="submit-written-btn"
+              disabled={submitting}
+              onClick={() => {
+                if (unansweredCount > 0) {
+                  setConfirmOpen(true);
+                } else {
+                  void handleSubmit(false);
+                }
+              }}
+              className="btn-primary flex items-center gap-1.5 whitespace-nowrap rounded-xl px-3 py-2 text-xs font-medium disabled:opacity-60 sm:px-4"
             >
-              <Clock className="h-3.5 w-3.5" />
-              {formatSeconds(remaining)}
-            </span>
-          )}
-          <button
-            type="button"
-            data-testid="submit-written-btn"
-            disabled={submitting}
-            onClick={() => {
-              if (unansweredCount > 0) {
-                setConfirmOpen(true);
-              } else {
-                void handleSubmit(false);
-              }
-            }}
-            className="btn-primary flex items-center gap-1.5 rounded-xl px-4 py-2 text-xs font-medium disabled:opacity-60"
-          >
-            {submitting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
-            提交笔试
-          </button>
+              {submitting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+              提交笔试
+            </button>
+          </div>
+        </div>
+        <div className="h-1 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-700/60">
+          <div
+            className="h-full rounded-full bg-primary-500 transition-all"
+            style={{ width: `${test.questions.length > 0 ? Math.round((answeredCount / test.questions.length) * 100) : 0}%` }}
+          />
         </div>
       </div>
 
@@ -449,7 +467,7 @@ export default function CandidateWrittenTest({
             <div
               key={q.index}
               data-testid={`written-question-${q.index}`}
-              className="dark-card space-y-3 p-5"
+              className="dark-card space-y-3 p-4 sm:p-5"
             >
               <div
                 onCopy={(e: ReactClipboardEvent<HTMLDivElement>) => {
@@ -518,7 +536,7 @@ export default function CandidateWrittenTest({
                             toggleMultiOption(q.index, letter);
                           }
                         }}
-                        className={`flex items-start gap-3 rounded-xl border px-3.5 py-2.5 text-left text-sm transition select-none ${
+                        className={`flex min-h-[44px] items-start gap-3 rounded-xl border px-3.5 py-3 text-left text-sm transition select-none touch-manipulation sm:py-2.5 ${
                           selected
                             ? 'border-primary-500 bg-primary-50/70 text-primary-900 dark:border-primary-400 dark:bg-primary-900/30 dark:text-primary-100'
                             : 'border-slate-200 text-slate-700 hover:border-slate-300 dark:border-slate-700 dark:text-slate-200'
@@ -559,6 +577,15 @@ export default function CandidateWrittenTest({
         loading={submitting}
         onConfirm={() => void handleSubmit(false)}
         onCancel={() => setConfirmOpen(false)}
+      />
+
+      <AiWaitingOverlay
+        open={submitting}
+        delayMs={600}
+        title="正在提交笔试并智能判分"
+        description="填空题将由 AI 进行语义判分，完成后自动进入 AI 面试环节，请勿关闭页面。"
+        estimate="通常需要 5–30 秒"
+        testId="written-grading-overlay"
       />
     </div>
   );

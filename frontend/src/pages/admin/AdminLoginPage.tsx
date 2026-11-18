@@ -8,7 +8,15 @@ import { ADMIN_HOME_PATH } from '../../constants/routes';
 
 /** 只允许站内相对路径作为登录后跳转目标，防止开放重定向 */
 function resolveRedirect(raw: string | null): string {
-  if (!raw || !raw.startsWith('/') || raw.startsWith('//') || raw.startsWith('/admin/login')) {
+  if (
+    !raw
+    || !raw.startsWith('/')
+    || raw.startsWith('//')
+    || raw.startsWith('/admin/login')
+    // 根路径与 /careers 属于面试者门户，后台登录后统一进入后台首页
+    || raw === '/'
+    || raw.startsWith('/careers')
+  ) {
     return ADMIN_HOME_PATH;
   }
   return raw;
