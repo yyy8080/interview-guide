@@ -15,6 +15,9 @@ import interview.guide.modules.interview.service.InterviewPersistenceService;
 import lombok.extern.slf4j.Slf4j;
 import org.redisson.api.stream.StreamMessageId;
 import org.springframework.ai.chat.client.ChatClient;
+import interview.guide.common.event.InterviewEvaluatedEvent;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Component;
 import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.ObjectMapper;
@@ -36,6 +39,7 @@ public class EvaluateStreamConsumer extends AbstractStreamConsumer<EvaluateStrea
     private final InterviewPersistenceService persistenceService;
     private final ObjectMapper objectMapper;
     private final LlmProviderRegistry llmProviderRegistry;
+    private ApplicationEventPublisher eventPublisher;
 
     public EvaluateStreamConsumer(
         RedisService redisService,
@@ -143,11 +147,33 @@ public class EvaluateStreamConsumer extends AbstractStreamConsumer<EvaluateStrea
     @Override
     protected void markCompleted(EvaluatePayload payload) {
         updateEvaluateStatus(payload.sessionId(), AsyncTaskStatus.COMPLETED, null);
+        publishEvaluated(payload.sessionId(), true);
     }
 
     @Override
     protected void markFailed(EvaluatePayload payload, String error) {
         updateEvaluateStatus(payload.sessionId(), AsyncTaskStatus.FAILED, error);
+        publishEvaluated(payload.sessionId(), false);
+    }
+
+    /**
+     * 可选注入：评估结束事件发布器（招聘流程据此推进 AI 决策）
+     */
+    @Autowired(required = false)
+    void setEventPublisher(ApplicationEventPublisher eventPublisher) {
+        this.eventPublisher = eventPublisher;
+    }
+
+    private void publishEvaluated(String sessionId, boolean success) {
+        if (eventPublisher == null) {
+            return;
+        }
+        try {
+            eventPublisher.publishEvent(
+                new InterviewEvaluatedEvent(InterviewEvaluatedEvent.Type.TEXT, sessionId, success));
+        } catch (Exception e) {
+            log.warn("发布面试评估结束事件失败: sessionId={}, error={}", sessionId, e.getMessage());
+        }
     }
 
     @Override

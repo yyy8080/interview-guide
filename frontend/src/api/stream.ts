@@ -1,4 +1,5 @@
 import { API_BASE_URL, getErrorMessage, getResultError, parseResultPayload } from './request';
+import { clearAuth, getValidToken, isPublicApiUrl, redirectToLogin } from '../utils/authStorage';
 
 type SseParseMode = 'line' | 'event';
 
@@ -270,11 +271,29 @@ async function readStream(response: Response, options: StreamSseOptions): Promis
 
 export async function streamSse(options: StreamSseOptions): Promise<void> {
   try {
-    const response = await fetch(toApiUrl(options.url), options.init);
+    const response = await fetch(toApiUrl(options.url), withAuthHeader(options.url, options.init));
+    if (response.status === 401 && !isPublicApiUrl(options.url)) {
+      clearAuth();
+      redirectToLogin();
+    }
     await assertStreamResponse(response);
     await readStream(response, options);
     options.onComplete();
   } catch (error) {
     options.onError(new Error(getErrorMessage(error)));
   }
+}
+
+/** fetch 不经过 axios 拦截器，需要手动附加后台令牌 */
+function withAuthHeader(url: string, init: RequestInit): RequestInit {
+  if (isPublicApiUrl(url)) {
+    return init;
+  }
+  const token = getValidToken();
+  if (!token) {
+    return init;
+  }
+  const headers = new Headers(init.headers);
+  headers.set('Authorization', `Bearer ${token}`);
+  return { ...init, headers };
 }

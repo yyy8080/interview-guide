@@ -166,7 +166,9 @@ public class DashscopeLlmService {
             }
         }
 
-        String systemPrompt = promptService.generateSystemPromptWithContext(session.getSkillId(), resumeText);
+        String systemPrompt = session.getCustomJdText() == null || session.getCustomJdText().isBlank()
+            ? promptService.generateSystemPromptWithContext(session.getSkillId(), resumeText)
+            : promptService.generateSystemPromptWithContext(session.getSkillId(), resumeText, session.getCustomJdText());
 
         StringBuilder promptBuilder = new StringBuilder();
         if (conversationHistory != null && !conversationHistory.isEmpty()) {

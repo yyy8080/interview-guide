@@ -3,6 +3,7 @@ import { createServer as createHttpServer, type Server } from 'node:http';
 import type { AddressInfo, Socket } from 'node:net';
 import { expect, test } from '@playwright/test';
 import { createServer, type ViteDevServer } from 'vite';
+import { seedAdminAuth } from './helpers/auth';
 
 let upstream: Server;
 let devServer: ViteDevServer;
@@ -57,12 +58,18 @@ test.afterAll(async () => {
   if (upstream?.listening) await new Promise<void>(resolve => upstream.close(() => resolve()));
 });
 
+test.beforeEach(async ({ page }) => {
+  await seedAdminAuth(page);
+});
+
 test('语音面试通过当前应用地址完成真实 WebSocket 握手', async ({ page }) => {
   await page.route('https://cdn.jsdelivr.net/**', route => route.abort());
   await page.goto(baseURL + '/voice-interview?skillId=java-backend&duration=15');
   await expect(page.getByTestId('voice-recorder-toggle')).toBeEnabled();
   expect(handshake).toEqual({
-    path: '/ws/voice-interview/42', host: new URL(baseURL).host, origin: baseURL,
+    path: '/ws/voice-interview/42?access_token=e2e-admin-token',
+    host: new URL(baseURL).host,
+    origin: baseURL,
   });
   await expect(page.getByText('连接已断开，请刷新页面重试', { exact: true })).not.toBeVisible();
   await page.goto('about:blank');
@@ -77,7 +84,9 @@ test('恢复语音面试也使用相同的 WebSocket 代理入口', async ({ pag
   await page.goto(baseURL + '/voice-interview');
   await expect(page.getByTestId('voice-recorder-toggle')).toBeEnabled();
   expect(handshake).toEqual({
-    path: '/ws/voice-interview/42', host: new URL(baseURL).host, origin: baseURL,
+    path: '/ws/voice-interview/42?access_token=e2e-admin-token',
+    host: new URL(baseURL).host,
+    origin: baseURL,
   });
   await page.goto('about:blank');
 });

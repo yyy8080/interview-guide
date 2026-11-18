@@ -1,4 +1,12 @@
 import axios, { AxiosInstance, AxiosRequestConfig } from 'axios';
+import { clearAuth, getValidToken, isPublicApiUrl, redirectToLogin } from '../utils/authStorage';
+import {
+  CANDIDATE_TOKEN_HEADER,
+  clearCandidateAuth,
+  getValidCandidateToken,
+  isCandidateApiUrl,
+  redirectToCandidateLogin,
+} from '../utils/candidateStorage';
 
 declare module 'axios' {
   interface AxiosRequestConfig {
@@ -15,7 +23,12 @@ export interface Result<T = unknown> {
   data: T;
 }
 
+export interface ApiError extends Error {
+  code?: number;
+}
+
 const SUCCESS_CODE = 200;
+const CANDIDATE_UNAUTHORIZED_CODE = 14005;
 const RESULT_BLOB_PARSE_LIMIT = 64 * 1024;
 
 export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? '';
@@ -23,6 +36,34 @@ export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? '';
 const instance: AxiosInstance = axios.create({
   baseURL: API_BASE_URL,
   timeout: 60000,
+});
+
+function buildApiError(message: string, code?: number): ApiError {
+  const err: ApiError = new Error(message);
+  if (code !== undefined) {
+    err.code = code;
+  }
+  return err;
+}
+
+/**
+ * 请求拦截器：后台接口携带 JWT；候选人接口携带 X-Candidate-Token；公开接口不携带后台令牌
+ */
+instance.interceptors.request.use((config) => {
+  if (isCandidateApiUrl(config.url)) {
+    const candidateToken = getValidCandidateToken();
+    if (candidateToken) {
+      config.headers.set(CANDIDATE_TOKEN_HEADER, candidateToken);
+    }
+    return config;
+  }
+  if (!isPublicApiUrl(config.url)) {
+    const token = getValidToken();
+    if (token) {
+      config.headers.set('Authorization', `Bearer ${token}`);
+    }
+  }
+  return config;
 });
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -35,11 +76,11 @@ export function isResult(value: unknown): value is Result {
     && typeof value.message === 'string';
 }
 
-export function getResultError(value: unknown): Error | null {
+export function getResultError(value: unknown): ApiError | null {
   if (!isResult(value) || value.code === SUCCESS_CODE) {
     return null;
   }
-  return new Error(value.message || '请求失败');
+  return buildApiError(value.message || '请求失败', value.code);
 }
 
 function parseResultText(text: string): Result | null {
@@ -94,13 +135,13 @@ export async function resolveBlobDownload(blob: Blob): Promise<Blob> {
     : '文件下载失败：服务端未返回文件内容');
 }
 
-async function getErrorFromResponseData(data: unknown): Promise<Error | null> {
+async function getErrorFromResponseData(data: unknown): Promise<ApiError | null> {
   const result = await parseResultPayload(data);
   if (!result) {
     return null;
   }
 
-  return new Error(result.message || '请求失败');
+  return buildApiError(result.message || '请求失败', result.code);
 }
 
 /**
@@ -125,8 +166,12 @@ instance.interceptors.response.use(
         response.data = result.data;
         return response;
       }
-      // 失败：直接抛出 message
-      return Promise.reject(new Error(result.message || '请求失败'));
+      if (result.code === CANDIDATE_UNAUTHORIZED_CODE && isCandidateApiUrl(response.config.url)) {
+        clearCandidateAuth();
+        redirectToCandidateLogin();
+      }
+      // 失败：直接抛出 message（附带业务错误码）
+      return Promise.reject(buildApiError(result.message || '请求失败', result.code));
     }
     
     // 非 Result 格式，直接返回
@@ -136,6 +181,11 @@ instance.interceptors.response.use(
     // 有响应的情况：后端返回了结果（即使是错误）
     if (error.response) {
       const { data, status } = error.response;
+      // 后台令牌缺失 / 过期 / 被吊销：清理登录状态并跳转登录页
+      if (status === 401 && !isPublicApiUrl(error.config?.url)) {
+        clearAuth();
+        redirectToLogin();
+      }
       // 尝试解析 Result 格式
       const responseError = await getErrorFromResponseData(data);
       if (responseError) {

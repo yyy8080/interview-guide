@@ -1,5 +1,6 @@
 import { API_BASE_URL, request } from './request';
 import { buildVoiceWebSocketUrl } from '../utils/voiceWebSocketUrl';
+import { getValidToken } from '../utils/authStorage';
 
 // ========== 类型定义 ==========
 
@@ -406,7 +407,7 @@ export function connectWebSocket(
   sessionId: number,
   handlers: WebSocketEventHandlers
 ): VoiceInterviewWebSocket {
-  const webSocketUrl = buildVoiceWebSocketUrl(sessionId, API_BASE_URL, window.location.href);
+  const webSocketUrl = buildVoiceWebSocketUrl(sessionId, API_BASE_URL, window.location.href, getValidToken());
   const ws = new VoiceInterviewWebSocket(sessionId, webSocketUrl, handlers);
   ws.connect();
   return ws;

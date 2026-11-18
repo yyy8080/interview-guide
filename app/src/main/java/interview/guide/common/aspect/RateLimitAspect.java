@@ -2,6 +2,7 @@ package interview.guide.common.aspect;
 
 import interview.guide.common.annotation.RateLimit;
 import interview.guide.common.exception.RateLimitExceededException;
+import interview.guide.common.security.CurrentAdmin;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -256,6 +257,12 @@ public class RateLimitAspect {
     }
 
     private String getCurrentUserId() {
+        // 优先使用已认证的后台账号，避免伪造请求头绕过按用户限流
+        Long adminId = CurrentAdmin.idOrNull();
+        if (adminId != null) {
+            return "admin-" + adminId;
+        }
+
         ServletRequestAttributes attributes = (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();
         if (attributes == null) {
             return "anonymous";

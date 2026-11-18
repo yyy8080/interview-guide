@@ -26,9 +26,17 @@ public interface ResumeRepository extends JpaRepository<ResumeEntity, Long> {
     Optional<ResumeEntity> findByIdForUpdate(@Param("id") Long id);
     
     /**
-     * 根据文件哈希查找简历（用于去重）
+     * 根据文件哈希查找简历（用于后台简历库去重）。
+     * 招聘投递的简历不参与去重，file_hash 已不再全局唯一，取最近一条且排除投递简历。
      */
-    Optional<ResumeEntity> findByFileHash(String fileHash);
+    @Query("""
+        SELECT r FROM ResumeEntity r
+        WHERE r.fileHash = :fileHash
+          AND NOT EXISTS (SELECT 1 FROM ApplicationEntity a WHERE a.resumeId = r.id)
+        ORDER BY r.id DESC
+        LIMIT 1
+        """)
+    Optional<ResumeEntity> findByFileHash(@Param("fileHash") String fileHash);
     
     /**
      * 检查文件哈希是否存在

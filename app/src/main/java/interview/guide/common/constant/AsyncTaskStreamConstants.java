@@ -183,4 +183,18 @@ public final class AsyncTaskStreamConstants {
      * LLM Provider字段
      */
     public static final String FIELD_LLM_PROVIDER = "llmProvider";
+
+    // ========== 招聘投递任务（AI 初筛 / AI 决策）Stream 配置 ==========
+
+    public static final String RECRUITMENT_TASK_STREAM_KEY = "recruitment:task:stream";
+
+    public static final String RECRUITMENT_TASK_GROUP_NAME = "recruitment-task-group";
+
+    public static final String RECRUITMENT_TASK_CONSUMER_PREFIX = "recruitment-task-consumer-";
+
+    /** 投递单 ID 字段 */
+    public static final String FIELD_APPLICATION_ID = "applicationId";
+
+    /** 任务类型字段（SCREENING / DECISION） */
+    public static final String FIELD_TASK_TYPE = "taskType";
 }

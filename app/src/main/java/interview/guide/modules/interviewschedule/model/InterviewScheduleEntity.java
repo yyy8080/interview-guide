@@ -39,6 +39,27 @@ public class InterviewScheduleEntity {
     @Column(nullable = false)
     private InterviewStatus status = InterviewStatus.PENDING;
 
+    // ========== 招聘线下面试（application_id 非空时为招聘流程创建的日程） ==========
+
+    @Column(name = "application_id")
+    private Long applicationId;
+
+    @Column(name = "location_address", length = 512)
+    private String locationAddress;
+
+    @Column(name = "duration_minutes")
+    private Integer durationMinutes;
+
+    /** 候选人确认状态：PENDING / CONFIRMED / RESCHEDULE_REQUESTED */
+    @Column(name = "candidate_confirm_status", length = 32)
+    private String candidateConfirmStatus;
+
+    @Column(name = "candidate_note", columnDefinition = "TEXT")
+    private String candidateNote;
+
+    @Column(name = "confirmed_at")
+    private LocalDateTime confirmedAt;
+
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;
 

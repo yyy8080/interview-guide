@@ -31,11 +31,33 @@ public class VoiceInterviewPromptService {
             工具输出包含完整的面试官角色和出题规则，后续对话应基于该角色进行。
             """;
 
-    public String generateSystemPromptWithContext(String skillId, String resumeText) {
-        StringBuilder prompt = new StringBuilder();
+    private static final String CUSTOM_JD_INSTRUCTION = """
+            你是一位企业招聘面试官，正在为下述岗位进行线上语音面试。
+            请围绕岗位 JD 的核心要求与候选人简历出题，考察技术深度、项目经验与岗位匹配度。
+            """;
 
-        if (skillId != null && !skillId.isBlank()) {
+    public String generateSystemPromptWithContext(String skillId, String resumeText) {
+        return generateSystemPromptWithContext(skillId, resumeText, null);
+    }
+
+    /**
+     * 生成系统提示词；customJdText 非空时附加岗位 JD（招聘场景），
+     * skillId 为 custom 时不加载 Skill 工具，改用 JD 驱动的面试官设定。
+     */
+    public String generateSystemPromptWithContext(String skillId, String resumeText, String customJdText) {
+        StringBuilder prompt = new StringBuilder();
+        boolean hasJd = customJdText != null && !customJdText.isBlank();
+        boolean customSkill = "custom".equals(skillId);
+
+        if (customSkill && hasJd) {
+            prompt.append(CUSTOM_JD_INSTRUCTION);
+        } else if (skillId != null && !skillId.isBlank() && !customSkill) {
             prompt.append(String.format(SKILL_TOOL_INSTRUCTION, skillId, skillId));
+        }
+
+        if (hasJd) {
+            prompt.append("\n\n【招聘岗位 JD】\n")
+                .append(promptSanitizer.wrapWithDelimiters("jd", promptSanitizer.sanitize(customJdText)));
         }
 
         prompt.append("\n\n").append(VOICE_RESPONSE_CONSTRAINTS);

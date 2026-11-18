@@ -9,6 +9,9 @@ import interview.guide.modules.voiceinterview.service.VoiceInterviewEvaluationSe
 import interview.guide.modules.voiceinterview.service.VoiceInterviewService;
 import lombok.extern.slf4j.Slf4j;
 import org.redisson.api.stream.StreamMessageId;
+import interview.guide.common.event.InterviewEvaluatedEvent;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Component;
 
 import java.util.Map;
@@ -23,6 +26,7 @@ public class VoiceEvaluateStreamConsumer extends AbstractStreamConsumer<VoiceEva
     private final VoiceInterviewService voiceInterviewService;
     private final VoiceInterviewEvaluationService evaluationService;
     private final VoiceInterviewSessionRepository sessionRepository;
+    private ApplicationEventPublisher eventPublisher;
 
     public VoiceEvaluateStreamConsumer(
         RedisService redisService,
@@ -106,12 +110,34 @@ public class VoiceEvaluateStreamConsumer extends AbstractStreamConsumer<VoiceEva
     protected void markCompleted(VoiceEvaluatePayload payload) {
         voiceInterviewService.updateEvaluateStatus(
                 payload.sessionId(), AsyncTaskStatus.COMPLETED, null);
+        publishEvaluated(payload.sessionId(), true);
     }
 
     @Override
     protected void markFailed(VoiceEvaluatePayload payload, String error) {
         voiceInterviewService.updateEvaluateStatus(
                 payload.sessionId(), AsyncTaskStatus.FAILED, error);
+        publishEvaluated(payload.sessionId(), false);
+    }
+
+    /**
+     * 可选注入：评估结束事件发布器（招聘流程据此推进 AI 决策）
+     */
+    @Autowired(required = false)
+    void setEventPublisher(ApplicationEventPublisher eventPublisher) {
+        this.eventPublisher = eventPublisher;
+    }
+
+    private void publishEvaluated(Long sessionId, boolean success) {
+        if (eventPublisher == null || sessionId == null) {
+            return;
+        }
+        try {
+            eventPublisher.publishEvent(new InterviewEvaluatedEvent(
+                InterviewEvaluatedEvent.Type.VOICE, sessionId.toString(), success));
+        } catch (Exception e) {
+            log.warn("发布语音面试评估结束事件失败: sessionId={}, error={}", sessionId, e.getMessage());
+        }
     }
 
     @Override

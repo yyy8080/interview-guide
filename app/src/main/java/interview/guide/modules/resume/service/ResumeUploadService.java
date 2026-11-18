@@ -125,6 +125,45 @@ public class ResumeUploadService {
     }
 
     /**
+     * 招聘投递上传简历：校验 → 解析 → 存储 → 入库；不去重、不投递简历分析任务。
+     * 数据库保存失败时补偿删除已上传的文件。
+     *
+     * @return 已保存的简历实体
+     */
+    public ResumeEntity uploadForApplication(org.springframework.web.multipart.MultipartFile file) {
+        fileValidationService.validateFile(file, MAX_FILE_SIZE, "简历");
+        String contentType = parseService.detectContentType(file);
+        validateContentType(contentType);
+
+        String resumeText = parseService.parseResume(file);
+        if (resumeText == null || resumeText.trim().isEmpty()) {
+            throw new BusinessException(ErrorCode.RESUME_PARSE_FAILED, "无法从文件中提取文本内容，请确保文件不是扫描版PDF");
+        }
+
+        String fileKey = storageService.uploadResume(file);
+        String fileUrl = storageService.getFileUrl(fileKey);
+        try {
+            return persistenceService.saveApplicationResume(file, resumeText, fileKey, fileUrl);
+        } catch (Exception dbError) {
+            deleteStoredQuietly(fileKey);
+            throw dbError;
+        }
+    }
+
+    /**
+     * 删除已上传的简历文件（投递失败时的补偿）
+     */
+    public void deleteStoredQuietly(String fileKey) {
+        try {
+            storageService.deleteResume(fileKey);
+            log.warn("已补偿删除孤儿简历文件: fileKey={}", fileKey);
+        } catch (Exception cleanupError) {
+            log.error("补偿删除孤儿对象失败，需人工清理: fileKey={}, error={}",
+                fileKey, cleanupError.getMessage(), cleanupError);
+        }
+    }
+
+    /**
      * 格式化文件大小为可读字符串
      */
     private String formatFileSize(long bytes) {

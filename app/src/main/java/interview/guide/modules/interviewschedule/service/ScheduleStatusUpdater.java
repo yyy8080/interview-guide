@@ -20,11 +20,19 @@ public class ScheduleStatusUpdater {
     @Scheduled(cron = "0 0 * * * ?")
     @Transactional
     public void updateExpiredInterviews() {
-        int updated = repository.updateStatusByStatusAndInterviewTimeBefore(
-            InterviewStatus.CANCELLED, InterviewStatus.PENDING, LocalDateTime.now());
+        LocalDateTime now = LocalDateTime.now();
+        int updated = repository.updateManualStatusBefore(
+            InterviewStatus.CANCELLED, InterviewStatus.PENDING, now);
 
         if (updated > 0) {
             log.info("已将 {} 条过期面试标记为已取消", updated);
+        }
+
+        // 招聘流程创建的线下面试：时间已过视为已完成，不应被标记为取消
+        int completed = repository.updateRecruitmentStatusBefore(
+            InterviewStatus.COMPLETED, InterviewStatus.PENDING, now.minusHours(2));
+        if (completed > 0) {
+            log.info("已将 {} 条招聘线下面试标记为已完成", completed);
         }
     }
 }

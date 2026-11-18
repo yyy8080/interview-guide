@@ -16,7 +16,7 @@
 
 ## 项目介绍
 
-InterviewGuide 是一个集成了简历分析、模拟面试（文字 + 语音）、面试安排、知识库管理、知识库题库面试和多模型配置的智能面试辅助平台。系统利用大语言模型（LLM）、向量数据库、Redis Stream 异步任务和实时语音技术，为求职者、HR 和培训机构提供智能化的简历评估、面试练习、知识库问答和面试日程管理能力。
+InterviewGuide 是一个面向企业智能招聘闭环的 AI 招聘与面试评估平台，打通「HR 发布岗位 → 候选人邮箱验证上传简历 → AI 自动初筛 → 在线文字/语音 AI 面试 → AI 自动综合审核 → HR 后台人工复审 → 邮件与 `.ics` 日历邀约线下面试」全链路，同时集成知识库 RAG、题库生成与多模型管理能力。
 
 ## 系统架构
 
@@ -76,6 +76,14 @@ InterviewGuide 是一个集成了简历分析、模拟面试（文字 + 语音�
 | pnpm              | 10.26 | 前端包管理器   |
 
 ## 功能特性
+
+### 企业智能招聘闭环模块
+
+- **候选人门户（`/careers`）**：无需注册密码，通过邮箱验证码（OTP）即可登录投递简历、实时跟踪投递阶段、参与在线面试，以及确认线下面试时间或提交改期申请。
+- **双模自选在线面试**：招聘岗位支持配置 `TEXT`（文字）、`VOICE`（语音）或 `BOTH`（默认，由候选人在开考时自主选择文字或实时语音模式），候选人侧严格脱敏参考答案与评分标准，并内置切屏、失焦、复制/粘贴等防作弊事件采集。
+- **AI 自动初筛与面试复审**：默认开启 AI 简历初筛（匹配度低于阈值直接进入淘汰终态并触发拒信通知）；在线面试交卷后自动触发统一评估与 AI 综合复审，通过后流转至 HR 待复审队列，未通过直接终态淘汰。
+- **HR 审核工作台与角色权限（`/admin/login`）**：内置 `ADMIN`（管理员）、`HR`（招聘专员）、`INTERVIEWER`（面试官只读）三角色权限隔离；审核工作台集中展示 AI 初筛结论、面试评分报告、语音对话记录、简历原文下载、防作弊监控、人工通过/淘汰与批量审批，并提供 6 阶段招聘漏斗看板。
+- **后台可视化 SMTP 与 `.ics` 日历邀约（`/admin/mail`）**：管理员可在后台配置 SMTP 服务器（密码 AES 加密存储）、在线编辑邮件模板、查看发件箱投递日志与失败重发；HR 安排线下面试后自动发送携带 RFC 5545 `.ics` 日历邀请附件的邮件，同步写入后台面试日程。
 
 ### 简历管理模块
 
@@ -229,24 +237,31 @@ interview-guide/
 │   │   │   ├── annotation/           # @RateLimit 可重复限流注解
 │   │   │   ├── aspect/               # RateLimitAspect + Redis Lua 限流
 │   │   │   ├── async/                # Redis Stream 生产者/消费者模板
-│   │   │   ├── config/               # CORS、S3、OpenAPI、Jackson 等配置
+│   │   │   ├── config/               # CORS、S3、OpenAPI、招聘参数等配置
 │   │   │   ├── evaluation/           # 文字/语音共用的统一评估引擎
+│   │   │   ├── event/                # 面试评估完成等领域事件
 │   │   │   ├── exception/            # 业务异常与全局异常处理
-│   │   │   └── result/               # 统一响应 Result<T>
+│   │   │   ├── result/               # 统一响应 Result<T> 与分页 PageResult<T>
+│   │   │   └── security/             # Spring Security、管理端/候选人双域 JWT 认证
 │   │   ├── infrastructure/           # 基础设施
 │   │   │   ├── export/               # PDF 导出
 │   │   │   ├── file/                 # 文件解析、校验、清洗、S3 存储
 │   │   │   ├── mapper/               # MapStruct 映射器
 │   │   │   └── redis/                # RedisService、面试会话缓存
 │   │   └── modules/                  # 业务模块
-│   │       ├── interview/            # 模拟面试模块
-│   │       ├── interviewschedule/    # 面试安排模块
-│   │       ├── knowledgebase/        # 知识库模块
+│   │       ├── auth/                 # HR 管理后台认证与账号角色管理
+│   │       ├── interview/            # 文字面试与统一题目评估模块
+│   │       ├── interviewschedule/    # 面试日程管理模块
+│   │       ├── job/                  # 招聘岗位配置与公开热招接口
+│   │       ├── knowledgebase/        # 知识库与题库模块
 │   │       ├── llmprovider/          # 多模型 Provider 与语音配置
-│   │       ├── resume/               # 简历模块
-│   │       └── voiceinterview/       # 语音面试模块
+│   │       ├── mail/                 # 后台 SMTP 配置、邮件模板、发件箱与 .ics 生成
+│   │       ├── recruitment/          # 候选人门户认证、投递状态机、AI 初筛/复审、线下面试邀约
+│   │       ├── resume/               # 简历解析与分析模块
+│   │       └── voiceinterview/       # 实时语音面试模块
 │   └── src/main/resources/
 │       ├── application.yml           # 应用配置
+│       ├── db/migration/             # Flyway 数据库迁移脚本
 │       ├── prompts/                  # AI 提示词模板（StringTemplate）
 │       ├── scripts/                  # Redis Lua 脚本
 │       ├── skills/                   # 面试 Skill 定义和参考题库
@@ -254,17 +269,18 @@ interview-guide/
 │
 ├── frontend/                         # 前端应用
 │   ├── src/
-│   │   ├── api/                      # API 接口
-│   │   ├── components/               # 公共组件
+│   │   ├── api/                      # API 接口（含 candidate、application、mail、job、auth）
+│   │   ├── components/               # 公共组件（含 CandidateLayout、CandidateVoicePanel 等）
+│   │   ├── constants/                # 路由常量
 │   │   ├── hooks/                    # 业务 Hooks
-│   │   ├── pages/                    # 页面组件
+│   │   ├── pages/                    # 页面组件（admin/ 管理后台、careers/ 候选人门户）
 │   │   ├── types/                    # 类型定义
-│   │   └── utils/                    # 工具函数
+│   │   └── utils/                    # 工具函数（管理端/候选人令牌存储、语音 WS 地址构造）
 │   ├── package.json
 │   └── vite.config.ts
 │
 ├── docker-compose.yml                # 完整部署：前端 + 后端 + PostgreSQL + Redis + MinIO
-├── docker-compose.dev.yml            # 本地开发依赖：PostgreSQL + Redis + RustFS
+├── docker-compose.dev.yml            # 本地开发依赖：PostgreSQL + Redis + RustFS + Mailpit
 ├── docs/                             # 架构设计与改造记录
 ├── .env.example                      # 环境变量示例
 └── README.md
@@ -316,7 +332,7 @@ source ~/.bashrc
 
 ### 3. 启动依赖服务（可选）
 
-项目提供了 `docker-compose.dev.yml`，可一键启动 PostgreSQL、Redis、RustFS（S3 兼容存储）三个依赖：
+项目提供了 `docker-compose.dev.yml`，可一键启动 PostgreSQL、Redis、RustFS（S3 兼容存储）和 Mailpit（本地邮件测试收件箱）四个依赖：
 
 ```bash
 # 启动依赖服务
@@ -355,8 +371,9 @@ docker compose -f docker-compose.dev.yml up -d --force-recreate postgres redis
 | PostgreSQL   | `localhost:5432` | `postgres`      | `123456`        |
 | Redis        | `localhost:6379` | -               | -               |
 | RustFS 控制台 | `localhost:9001` | `rustfsadmin`   | `rustfsadmin`   |
+| Mailpit 收件箱 | `localhost:8025`（SMTP `1025`） | - | - |
 
-> **注意**：应用启动时会自动检查并创建 `interview-guide` Bucket。使用 `docker-compose.dev.yml` + `:app:bootRun` 时，请确保 `.env` 中的 `APP_STORAGE_ACCESS_KEY` / `APP_STORAGE_SECRET_KEY` 与 RustFS 账号一致，例如都设为 `rustfsadmin`。如果本地已有 MinIO 或其他 S3 兼容存储，也可以直接使用，在 `.env` 中修改 `APP_STORAGE_*` 配置即可。
+> **注意**：应用启动时会自动检查并创建 `interview-guide` Bucket。使用 `docker-compose.dev.yml` + `:app:bootRun` 时，请确保 `.env` 中的 `APP_STORAGE_ACCESS_KEY` / `APP_STORAGE_SECRET_KEY` 与 RustFS 账号一致，例如都设为 `rustfsadmin`。本地调试邮件可在后台「邮件设置」中将 SMTP 配为 `localhost:1025`（安全协议选 `NONE`），即可在 `http://localhost:8025` 查看候选人验证码、面试通知与 `.ics` 日历附件。
 
 > **IDEA Docker Debug 提示**：如果在 macOS 上使用 IntelliJ IDEA 的 Docker 调试方式启动后端，遇到 `mounts denied: The path /Applications/IntelliJ IDEA.app/Contents/lib is not shared from the host`，请在 Docker Desktop 的 `Settings -> Resources -> File Sharing` 中加入 `/Applications/IntelliJ IDEA.app/Contents/lib`（或整个 `/Applications/IntelliJ IDEA.app`）以及当前项目目录，然后重启 Docker/IDEA 后再运行。普通 `./gradlew :app:bootRun` 和 `docker compose` 启动不需要这个额外共享路径。
 
@@ -379,7 +396,9 @@ pnpm install
 pnpm dev
 ```
 
-前端服务启动于 `http://localhost:5173`
+前端服务启动于 `http://localhost:5173`：
+- **候选人招聘门户**：`http://localhost:5173/careers`
+- **HR 管理后台**：`http://localhost:5173/admin/login`（首次启动若未设置 `APP_SECURITY_INIT_ADMIN_PASSWORD`，系统会自动创建 `admin` 账号并在后端启动日志中打印初始密码）
 
 
 ## Docker 快速部署
@@ -426,9 +445,10 @@ docker-compose up -d --build
 
 | 服务             | 地址                                           | 默认账号     | 默认密码     | 说明                   |
 | ---------------- | ---------------------------------------------- | ------------ | ------------ | ---------------------- |
-| **前端应用**     | [http://localhost](http://localhost)           | -            | -            | 用户访问入口           |
+| **候选人门户**   | [http://localhost/careers](http://localhost/careers) | 邮箱验证码登录 | -      | 浏览岗位、上传简历、在线面试、确认线下面试 |
+| **HR 管理后台**  | [http://localhost/admin/login](http://localhost/admin/login) | `admin` | 见启动日志或 `.env` | 岗位发布、投递复审、安排线下面试、邮件配置 |
 | **后端 API**     | [http://localhost:8080](http://localhost:8080) | -            | -            | RESTful API            |
-| **接口文档**     | [http://localhost:8080/swagger-ui.html](http://localhost:8080/swagger-ui.html) | - | - | SpringDoc/Swagger UI |
+| **接口文档**     | [http://localhost:8080/swagger-ui.html](http://localhost:8080/swagger-ui.html) | - | - | SpringDoc/Swagger UI（默认生产关闭，可通过 `APP_SECURITY_PUBLIC_API_DOCS` 开启） |
 | **MinIO 控制台** | [http://localhost:9001](http://localhost:9001) | `minioadmin` | `minioadmin` | 对象存储管理           |
 | **MinIO API**    | `localhost:9000`                               | -            | -            | S3 兼容接口            |
 | **PostgreSQL**   | `localhost:5432`                               | `postgres`   | `password`   | 数据库 (包含 pgvector) |

@@ -93,6 +93,31 @@ public class ResumePersistenceService {
     }
     
     /**
+     * 保存招聘投递的简历：不参与简历分析（analyzeStatus 为空，恢复调度不会扫描），由招聘初筛负责评估
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public ResumeEntity saveApplicationResume(MultipartFile file, String resumeText,
+                                              String storageKey, String storageUrl) {
+        try {
+            ResumeEntity resume = new ResumeEntity();
+            resume.setFileHash(fileHashService.calculateHash(file));
+            resume.setOriginalFilename(file.getOriginalFilename());
+            resume.setFileSize(file.getSize());
+            resume.setContentType(file.getContentType());
+            resume.setStorageKey(storageKey);
+            resume.setStorageUrl(storageUrl);
+            resume.setResumeText(resumeText);
+            resume.setAnalyzeStatus(null);
+            ResumeEntity saved = resumeRepository.save(resume);
+            log.info("投递简历已保存: id={}", saved.getId());
+            return saved;
+        } catch (Exception e) {
+            log.error("保存投递简历失败: {}", e.getMessage(), e);
+            throw new BusinessException(ErrorCode.RESUME_UPLOAD_FAILED, "保存简历失败");
+        }
+    }
+    
+    /**
      * 回填简历正文（独立短事务，供 Stream 消费者从 RustFS 恢复文本后使用）
      */
     @Transactional(rollbackFor = Exception.class)

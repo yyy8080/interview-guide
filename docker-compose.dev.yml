@@ -56,8 +56,16 @@ services:
       timeout: 3s
       retries: 5
 
+  mailpit:
+    image: axllent/mailpit
+    container_name: interview-mailpit
+    ports:
+      - "1025:1025" # SMTP 端口（后台「邮件设置」可填 localhost:1025，安全协议选 NONE）
+      - "8025:8025" # Web 收件箱界面：http://localhost:8025
+
 # 首次启动后，浏览器访问 http://localhost:9001
 # 使用 ${RUSTFS_ACCESS_KEY} / ${RUSTFS_SECRET_KEY} 登录，手动创建名为 interview-guide 的 bucket
+# 本地邮件调试：访问 http://localhost:8025 查看验证码、面试邀请与 .ics 日历附件
 
 volumes:
   postgres_data:

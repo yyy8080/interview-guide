@@ -32,11 +32,11 @@ docker compose -f docker-compose.dev.yml up -d
 
 ## Project Structure
 
-- `app/src/main/java/interview/guide/common/`: 通用能力，包括限流、AI 调用、异步模板、配置、异常、统一响应。
+- `app/src/main/java/interview/guide/common/`: 通用能力，包括安全认证（`security/`）、领域事件（`event/`）、限流、AI 调用、异步模板、配置、异常、统一响应。
 - `app/src/main/java/interview/guide/infrastructure/`: 技术基础设施，包括文件、导出、Redis、MapStruct 映射。
-- `app/src/main/java/interview/guide/modules/`: 业务模块，每个模块自包含 MVC 分层。
+- `app/src/main/java/interview/guide/modules/`: 业务模块（含 `auth`、`job`、`recruitment`、`mail`、`interview`、`voiceinterview`、`interviewschedule`、`knowledgebase`、`llmprovider`、`resume`），每个模块自包含 MVC 分层。
 - `app/src/main/resources/prompts/`: StringTemplate Prompt 模板。
-- `frontend/src/`: React 前端页面、组件、API 客户端和类型定义。
+- `frontend/src/`: React 前端页面（`pages/admin/` 管理后台、`pages/careers/` 候选人门户）、组件、API 客户端和类型定义。
 
 ## Architecture
 
@@ -45,6 +45,9 @@ docker compose -f docker-compose.dev.yml up -d
 - Repository 继承 Spring Data JPA `JpaRepository`，自定义查询用方法名或 `@Query`。
 - 基础设施能力优先放在 `common/` 或 `infrastructure/`，不要散落到业务 Service。
 - 对外响应统一使用 `Result<T>`，禁止直接返回 Entity。
+- 双域认证隔离：后台管理端使用 `Authorization: Bearer <token>`（角色 `ADMIN` / `HR` / `INTERVIEWER`，其中 `INTERVIEWER` 仅限只读 GET）；候选人门户使用 `X-Candidate-Token`（语音 WS 使用 `candidate_token` 查询参数，`typ=candidate`），两套令牌严禁混用。
+- 候选人侧题目响应必须走脱敏 DTO，严禁暴露 `referenceAnswer`、`keyPoints`、`scoringRubric`、`score`、`feedback`。
+- 招聘投递状态变更必须统一经由 `ApplicationStateMachine.transition(...)`，确保状态审计日志与邮件通知事件一致。
 
 ## Backend Rules
 
@@ -61,7 +64,7 @@ docker compose -f docker-compose.dev.yml up -d
 - 获取聊天模型统一走 `LlmProviderRegistry.getChatClientOrDefault(provider)`。
 - 结构化输出统一走 `StructuredOutputInvoker`，不要在业务代码里复制重试逻辑。
 - Prompt 模板放在 `resources/prompts/`，使用 StringTemplate `.st`。
-- LLM、S3、外部 HTTP 调用不得放在数据库事务内。
+- LLM、S3、SMTP 邮件发送、外部 HTTP 调用不得放在数据库事务内；邮件通知统一写入 `email_logs` 发件箱由定时任务异步投递。
 - Redis Stream 生产/消费使用 `AbstractStreamProducer` / `AbstractStreamConsumer` 模板。
 - 异步处理前先校验实体是否存在；实体已删除时 ACK 丢弃。
 - 限流使用可重复 `@RateLimit`，不要手写散落的 Redis 限流逻辑。
@@ -69,10 +72,10 @@ docker compose -f docker-compose.dev.yml up -d
 ## Config And Data
 
 - 配置集中在 `application.yml`、`.env` 和 `@ConfigurationProperties` 类中。
-- API Key、数据库密码等敏感信息只放 `.env`，不得提交到 Git。
+- API Key、数据库密码等敏感信息只放 `.env`，不得提交到 Git；后台配置的 SMTP 密码必须经 `ApiKeyEncryptionService` 加密后落库。
 - 不要在 Service 中散落 `@Value`。
 - 本地默认后端端口是 `8080`：`server.port: ${SERVER_PORT:8080}`。
-- 开发环境 `ddl-auto` 可为 `update`，生产环境不能依赖自动建表。
+- 开发环境 `ddl-auto` 默认为 `validate`，数据库建表与演进统一通过 `db/migration/` 下的 Flyway 脚本管理。
 
 ## Frontend Rules
 

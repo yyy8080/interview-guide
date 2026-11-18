@@ -1,4 +1,9 @@
 import { expect, test, type Page, type Route } from '@playwright/test';
+import { seedAdminAuth } from './helpers/auth';
+
+test.beforeEach(async ({ page }) => {
+  await seedAdminAuth(page);
+});
 
 const file = (name: string) => ({ name, mimeType: 'text/plain', buffer: Buffer.from(`简历测试 ${name}`) });
 const row = (page: Page, name: string) => page.locator('section .divide-y > div')

@@ -5,7 +5,8 @@ import { historyApi, type InterviewDetail } from './api/history';
 import type { Difficulty } from './components/UnifiedInterviewModal';
 import type { CategoryDTO } from './api/skill';
 import { Loader2 } from 'lucide-react';
-import { ROUTE_PATTERNS, ROUTES } from './constants/routes';
+import { ADMIN_HOME_PATH, ROUTE_PATTERNS, ROUTES } from './constants/routes';
+import RequireAuth from './components/RequireAuth';
 
 // Lazy load components
 const UploadPage = lazy(() => import('./pages/UploadPage'));
@@ -25,6 +26,24 @@ const InterviewSchedulePage = lazy(() => import('./pages/InterviewSchedulePage')
 const InterviewHubPage = lazy(() => import('./pages/InterviewHubPage'));
 const SettingsPage = lazy(() => import('./pages/SettingsPage'));
 const InterviewDetailPanel = lazy(() => import('./components/InterviewDetailPanel'));
+
+// HR 管理后台
+const AdminLoginPage = lazy(() => import('./pages/admin/AdminLoginPage'));
+const DashboardPage = lazy(() => import('./pages/admin/DashboardPage'));
+const JobListPage = lazy(() => import('./pages/admin/JobListPage'));
+const JobEditPage = lazy(() => import('./pages/admin/JobEditPage'));
+const ApplicationListPage = lazy(() => import('./pages/admin/ApplicationListPage'));
+const ApplicationDetailPage = lazy(() => import('./pages/admin/ApplicationDetailPage'));
+const MailSettingsPage = lazy(() => import('./pages/admin/MailSettingsPage'));
+const AccountPage = lazy(() => import('./pages/admin/AccountPage'));
+
+// 候选人门户
+const CandidateLayout = lazy(() => import('./components/CandidateLayout'));
+const CareersPage = lazy(() => import('./pages/careers/CareersPage'));
+const CareerJobDetailPage = lazy(() => import('./pages/careers/CareerJobDetailPage'));
+const CandidateLoginPage = lazy(() => import('./pages/careers/CandidateLoginPage'));
+const CandidateApplicationsPage = lazy(() => import('./pages/careers/CandidateApplicationsPage'));
+const CandidateInterviewPage = lazy(() => import('./pages/careers/CandidateInterviewPage'));
 
 // Loading component
 const Loading = () => (
@@ -185,9 +204,31 @@ function App() {
     <BrowserRouter>
       <Suspense fallback={<Loading />}>
         <Routes>
-          <Route path="/" element={<Layout />}>
-            {/* 默认重定向到简历管理页面 */}
-            <Route index element={<Navigate to="/history" replace />} />
+          {/* 后台登录 */}
+          <Route path={ROUTES.adminLogin.slice(1)} element={<AdminLoginPage />} />
+
+          {/* 候选人门户 */}
+          <Route path={ROUTES.careers.slice(1)} element={<CandidateLayout />}>
+            <Route index element={<CareersPage />} />
+            <Route path="login" element={<CandidateLoginPage />} />
+            <Route path="me" element={<CandidateApplicationsPage />} />
+            <Route path={ROUTE_PATTERNS.careerInterview} element={<CandidateInterviewPage />} />
+            <Route path=":jobId" element={<CareerJobDetailPage />} />
+          </Route>
+
+          <Route path="/" element={<RequireAuth><Layout /></RequireAuth>}>
+            {/* 默认重定向到投递管理 */}
+            <Route index element={<Navigate to={ADMIN_HOME_PATH} replace />} />
+
+            {/* 招聘管理 */}
+            <Route path={ROUTES.adminDashboard.slice(1)} element={<RequireAuth roles={['ADMIN', 'HR']}><DashboardPage /></RequireAuth>} />
+            <Route path={ROUTES.adminApplications.slice(1)} element={<ApplicationListPage />} />
+            <Route path={ROUTE_PATTERNS.adminApplicationDetail} element={<ApplicationDetailPage />} />
+            <Route path={ROUTES.adminJobs.slice(1)} element={<JobListPage />} />
+            <Route path={ROUTES.adminJobCreate.slice(1)} element={<RequireAuth roles={['ADMIN', 'HR']}><JobEditPage /></RequireAuth>} />
+            <Route path={ROUTE_PATTERNS.adminJobEdit} element={<RequireAuth roles={['ADMIN', 'HR']}><JobEditPage /></RequireAuth>} />
+            <Route path={ROUTES.adminMail.slice(1)} element={<RequireAuth roles={['ADMIN']}><MailSettingsPage /></RequireAuth>} />
+            <Route path={ROUTES.adminAccount.slice(1)} element={<AccountPage />} />
 
             {/* 上传页面 */}
             <Route path="upload" element={<UploadPageWrapper />} />
@@ -242,7 +283,7 @@ function App() {
             <Route path="interview-schedule" element={<InterviewSchedulePage />} />
 
             {/* 设置 */}
-            <Route path="settings" element={<SettingsPage />} />
+            <Route path="settings" element={<RequireAuth roles={['ADMIN']}><SettingsPage /></RequireAuth>} />
 
             {/* 问答助手（知识库聊天） */}
             <Route path="knowledgebase/chat" element={<KnowledgeBaseQueryPageWrapper />} />

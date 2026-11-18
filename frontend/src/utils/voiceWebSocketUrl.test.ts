@@ -22,3 +22,13 @@ test('显式 API 地址和相对 API 地址与 REST 请求保持一致', () => {
   assert.equal(buildVoiceWebSocketUrl(42, 'https://api.example/backend', 'https://interview.example/'),
     'wss://api.example/backend/ws/voice-interview/42');
 });
+
+test('候选人语音面试路径与 candidate_token 查询参数', () => {
+  assert.equal(
+    buildVoiceWebSocketUrl(99, '', 'https://careers.example/careers/applications/7/interview', 'cand-jwt', {
+      pathPrefix: '/ws/candidate/voice-interview',
+      tokenParam: 'candidate_token',
+    }),
+    'wss://careers.example/ws/candidate/voice-interview/99?candidate_token=cand-jwt',
+  );
+});

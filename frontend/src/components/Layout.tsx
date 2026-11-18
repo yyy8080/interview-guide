@@ -1,10 +1,27 @@
 import {Link, Outlet, useLocation, useNavigate} from 'react-router-dom';
 import {motion} from 'framer-motion';
-import {BookOpen, Calendar, ChevronRight, Database, FileStack, MessageSquare, Moon, Settings, Sparkles, Sun, Users,} from 'lucide-react';
+import {
+  BarChart3,
+  BookOpen,
+  Briefcase,
+  Calendar,
+  ChevronRight,
+  ClipboardCheck,
+  Database,
+  LogOut,
+  Mail,
+  Moon,
+  Settings,
+  Sparkles,
+  Sun,
+  UserCog,
+} from 'lucide-react';
 import {useTheme} from '../hooks/useTheme';
-import {useState} from 'react';
+import {useEffect, useState} from 'react';
 import UnifiedInterviewModal, {UnifiedInterviewConfig} from './UnifiedInterviewModal';
-import {ROUTES} from '../constants/routes';
+import {ADMIN_HOME_PATH, ROUTES} from '../constants/routes';
+import {ADMIN_LOGIN_PATH, AUTH_CHANGED_EVENT, clearAuth, getStoredUser} from '../utils/authStorage';
+import {ADMIN_ROLE_LABELS, type AdminRole, type AdminUser} from '../types/auth';
 
 interface NavItem {
   id: string;
@@ -12,6 +29,8 @@ interface NavItem {
   label: string;
   icon: React.ComponentType<{ className?: string }>;
   description?: string;
+  /** 仅这些角色可见；为空表示所有后台角色可见 */
+  roles?: AdminRole[];
 }
 
 interface NavGroup {
@@ -25,6 +44,22 @@ export default function Layout() {
   const currentPath = location.pathname;
   const {theme, toggleTheme} = useTheme();
   const navigate = useNavigate();
+  const [currentUser, setCurrentUser] = useState<AdminUser | null>(getStoredUser);
+
+  useEffect(() => {
+    const sync = () => setCurrentUser(getStoredUser());
+    window.addEventListener(AUTH_CHANGED_EVENT, sync);
+    window.addEventListener('storage', sync);
+    return () => {
+      window.removeEventListener(AUTH_CHANGED_EVENT, sync);
+      window.removeEventListener('storage', sync);
+    };
+  }, []);
+
+  const handleLogout = () => {
+    clearAuth();
+    navigate(ADMIN_LOGIN_PATH, {replace: true});
+  };
   const [interviewModalPreset, setInterviewModalPreset] = useState<{
     defaultMode: 'text' | 'voice';
     defaultResumeId?: number;
@@ -80,50 +115,108 @@ export default function Layout() {
     });
   };
 
-  // 按业务模块组织的导航项
+  // 按企业招聘业务组织的导航项（隐藏个人练习入口）
   const navGroups: NavGroup[] = [
     {
-      id: 'interview',
-      title: '面试准备',
+      id: 'recruitment',
+      title: '招聘管理',
       items: [
-        { id: 'resumes', path: '/history', label: '简历管理', icon: FileStack, description: '管理简历，AI 分析' },
-        { id: 'interview-hub', path: '/interview-hub', label: '模拟面试', icon: Sparkles, description: '文字/语音面试练习' },
-        { id: 'interviews', path: '/interviews', label: '面试记录', icon: Users, description: '查看面试历史' },
-        { id: 'interview-schedule', path: '/interview-schedule', label: '面试日程', icon: Calendar, description: '管理面试安排' },
+        {
+          id: 'admin-applications',
+          path: ROUTES.adminApplications,
+          label: '投递管理',
+          icon: ClipboardCheck,
+          description: '候选人审核与线下邀约',
+        },
+        {
+          id: 'admin-jobs',
+          path: ROUTES.adminJobs,
+          label: '岗位管理',
+          icon: Briefcase,
+          description: '配置招聘岗位与面试',
+        },
+        {
+          id: 'admin-dashboard',
+          path: ROUTES.adminDashboard,
+          label: '招聘看板',
+          icon: BarChart3,
+          description: '全流程漏斗与状态统计',
+          roles: ['ADMIN', 'HR'],
+        },
+        {
+          id: 'interview-schedule',
+          path: '/interview-schedule',
+          label: '面试日程',
+          icon: Calendar,
+          description: '线下面试日程日历',
+        },
       ],
     },
     {
       id: 'knowledge',
-      title: '知识库',
+      title: '题库管理',
       items: [
-        { id: 'kb-manage', path: '/knowledgebase', label: '知识库管理', icon: Database, description: '管理知识文档' },
-        { id: 'kb-interview', path: '/knowledgebase-interview', label: '知识库面试', icon: BookOpen, description: '题库维护与面试' },
-        { id: 'chat', path: '/knowledgebase/chat', label: '问答助手', icon: MessageSquare, description: '基于知识库问答' },
+        {
+          id: 'kb-manage',
+          path: '/knowledgebase',
+          label: '知识库文档',
+          icon: Database,
+          description: '上传岗位参考资料',
+          roles: ['ADMIN', 'HR'],
+        },
+        {
+          id: 'kb-interview',
+          path: '/knowledgebase-interview',
+          label: '面试题库',
+          icon: BookOpen,
+          description: '维护岗位专属题库',
+          roles: ['ADMIN', 'HR'],
+        },
       ],
     },
     {
       id: 'system',
-      title: '系统',
+      title: '系统配置',
       items: [
-        { id: 'settings', path: '/settings', label: '设置', icon: Settings, description: '管理模型和语音服务' },
+        {
+          id: 'admin-mail',
+          path: ROUTES.adminMail,
+          label: '邮件设置',
+          icon: Mail,
+          description: 'SMTP、模板与发送日志',
+          roles: ['ADMIN'],
+        },
+        {
+          id: 'settings',
+          path: '/settings',
+          label: '模型与语音',
+          icon: Settings,
+          description: '管理模型和语音服务',
+          roles: ['ADMIN'],
+        },
+        {
+          id: 'account',
+          path: ROUTES.adminAccount,
+          label: '账号管理',
+          icon: UserCog,
+          description: '密码与后台账号',
+        },
       ],
     },
   ];
 
+  const visibleNavGroups = navGroups
+    .map(group => ({
+      ...group,
+      items: group.items.filter(item => !item.roles || (currentUser != null && item.roles.includes(currentUser.role))),
+    }))
+    .filter(group => group.items.length > 0);
+
   // 判断当前页面是否匹配导航项
   const isActive = (path: string) => {
     if (path.startsWith('#')) return false;
-    if (path === '/history') {
-      return currentPath === '/history'
-        || currentPath === '/'
-        || currentPath.startsWith('/history/')
-        || currentPath === '/upload';
-    }
-    if (path === '/interview-hub') {
-      return currentPath === '/interview-hub'
-        || currentPath === ROUTES.interview
-        || currentPath.startsWith('/interview/')
-        || currentPath.startsWith('/voice-interview');
+    if (path === ROUTES.adminApplications) {
+      return currentPath === '/' || currentPath.startsWith(ROUTES.adminApplications);
     }
     if (path === '/knowledgebase') {
       return currentPath === '/knowledgebase' || currentPath === '/knowledgebase/upload';
@@ -137,13 +230,13 @@ export default function Layout() {
       <aside className="w-64 bg-white dark:bg-slate-900 border-r border-slate-100 dark:border-slate-700 fixed h-screen left-0 top-0 z-50 flex flex-col">
         {/* Logo */}
         <div className="p-6 border-b border-slate-100 dark:border-slate-700 flex items-center justify-between">
-          <Link to="/history" className="flex items-center gap-3">
+          <Link to={ADMIN_HOME_PATH} className="flex items-center gap-3">
             <div className="w-10 h-10 bg-gradient-to-br from-primary-500 to-primary-600 rounded-xl flex items-center justify-center text-white shadow-lg shadow-primary-500/30">
               <Sparkles className="w-5 h-5" />
             </div>
             <div>
               <span className="text-lg font-bold text-slate-800 dark:text-white tracking-tight block">AI Interview</span>
-              <span className="text-xs text-slate-400 dark:text-slate-500">智能面试助手</span>
+              <span className="text-xs text-slate-400 dark:text-slate-500">智能招聘后台</span>
             </div>
           </Link>
         </div>
@@ -171,7 +264,7 @@ export default function Layout() {
         {/* 导航菜单 */}
         <nav className="flex-1 p-4 overflow-y-auto">
           <div className="space-y-6">
-            {navGroups.map((group) => (
+            {visibleNavGroups.map((group) => (
               <div key={group.id}>
                 <div className="px-3 mb-2">
                   <span className="text-xs font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wider">
@@ -220,11 +313,24 @@ export default function Layout() {
           </div>
         </nav>
 
-        {/* 底部信息 */}
+        {/* 底部信息：当前账号 */}
         <div className="p-4 border-t border-slate-100 dark:border-slate-700">
-          <div className="px-3 py-2 bg-gradient-to-r from-primary-50 to-indigo-50 dark:from-primary-900/30 dark:to-slate-800 rounded-xl">
-            <p className="text-xs text-primary-600 dark:text-primary-400 font-medium">AI 面试助手 v1.0</p>
-            <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">Powered by AI</p>
+          <div className="px-3 py-2 bg-gradient-to-r from-primary-50 to-indigo-50 dark:from-primary-900/30 dark:to-slate-800 rounded-xl flex items-center gap-2">
+            <div className="flex-1 min-w-0">
+              <p className="text-sm text-slate-800 dark:text-white font-medium truncate">
+                {currentUser?.displayName || currentUser?.username || '未登录'}
+              </p>
+              <p className="text-xs text-primary-600 dark:text-primary-400 mt-0.5">
+                {currentUser ? ADMIN_ROLE_LABELS[currentUser.role] : ''}
+              </p>
+            </div>
+            <button
+              onClick={handleLogout}
+              title="退出登录"
+              className="p-2 rounded-lg text-slate-500 hover:text-red-600 hover:bg-white/70 dark:text-slate-400 dark:hover:bg-slate-700 transition-colors"
+            >
+              <LogOut className="w-4 h-4" />
+            </button>
           </div>
         </div>
       </aside>

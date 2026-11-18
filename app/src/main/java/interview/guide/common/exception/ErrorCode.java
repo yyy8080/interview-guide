@@ -81,7 +81,42 @@ public enum ErrorCode {
     MODULE_NOT_FOUND(11008, "模块不存在"),
     VOICE_CONFIG_READ_FAILED(11009, "读取语音服务配置失败"),
     VOICE_CONFIG_WRITE_FAILED(11010, "写入语音服务配置失败"),
-    VOICE_CONFIG_TEST_FAILED(11011, "语音服务连通性测试失败");
+    VOICE_CONFIG_TEST_FAILED(11011, "语音服务连通性测试失败"),
+
+    // ========== 后台认证与账号模块错误 12xxx ==========
+    AUTH_INVALID_CREDENTIALS(12001, "用户名或密码错误"),
+    AUTH_ACCOUNT_DISABLED(12002, "账号已被禁用"),
+    AUTH_PASSWORD_INCORRECT(12003, "原密码错误"),
+    ADMIN_USER_NOT_FOUND(12004, "账号不存在"),
+    ADMIN_USER_ALREADY_EXISTS(12005, "用户名已存在"),
+    ADMIN_LAST_ADMIN_PROTECTED(12006, "至少需要保留一个启用的管理员账号"),
+
+    // ========== 招聘岗位模块错误 13xxx ==========
+    JOB_NOT_FOUND(13001, "岗位不存在"),
+    JOB_STATUS_INVALID(13002, "岗位状态不允许该操作"),
+    JOB_CONFIG_INVALID(13003, "岗位配置不完整"),
+
+    // ========== 投递与候选人模块错误 14xxx ==========
+    APPLICATION_NOT_FOUND(14001, "投递记录不存在"),
+    APPLICATION_STATUS_INVALID(14002, "当前投递状态不允许该操作"),
+    APPLICATION_DUPLICATE(14003, "您已投递过该岗位"),
+    JOB_NOT_ACCEPTING(14004, "该岗位已停止招聘"),
+    CANDIDATE_UNAUTHORIZED(14005, "请先完成邮箱验证"),
+    VERIFICATION_CODE_INVALID(14006, "验证码错误或已过期"),
+    VERIFICATION_CODE_TOO_FREQUENT(14007, "验证码发送过于频繁，请稍后再试"),
+    CONSENT_REQUIRED(14008, "请阅读并同意个人信息授权声明"),
+    INTERVIEW_MODE_NOT_ALLOWED(14009, "该岗位不支持所选面试形式"),
+    INTERVIEW_NOT_AVAILABLE(14010, "当前无法进行在线面试"),
+    SCREENING_FAILED(14011, "AI 简历初筛失败"),
+    DECISION_FAILED(14012, "AI 审核决策失败"),
+    RESUME_IN_USE(14013, "该简历关联了招聘投递，不能删除"),
+
+    // ========== 邮件模块错误 15xxx ==========
+    MAIL_NOT_CONFIGURED(15001, "邮件服务未配置或未启用"),
+    MAIL_SEND_FAILED(15002, "邮件发送失败"),
+    EMAIL_TEMPLATE_NOT_FOUND(15003, "邮件模板不存在"),
+    MAIL_CONFIG_INVALID(15004, "邮件配置不正确");
+
 
     private final Integer code;
     private final String message;

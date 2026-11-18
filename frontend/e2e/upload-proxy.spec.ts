@@ -2,6 +2,11 @@ import { createServer as createHttpServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { expect, test } from '@playwright/test';
 import { createServer, type ViteDevServer } from 'vite';
+import { seedAdminAuth } from './helpers/auth';
+
+test.beforeEach(async ({ page }) => {
+  await seedAdminAuth(page);
+});
 
 let upstream: Server;
 let devServer: ViteDevServer;

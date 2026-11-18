@@ -25,4 +25,24 @@ public interface InterviewScheduleRepository extends JpaRepository<InterviewSche
         @Param("newStatus") InterviewStatus newStatus,
         @Param("oldStatus") InterviewStatus oldStatus,
         @Param("cutoff") LocalDateTime cutoff);
+
+    /** 仅更新手工录入（非招聘流程）的日程 */
+    @Modifying
+    @Query("UPDATE InterviewScheduleEntity e SET e.status = :newStatus WHERE e.status = :oldStatus "
+        + "AND e.interviewTime < :cutoff AND e.applicationId IS NULL")
+    int updateManualStatusBefore(
+        @Param("newStatus") InterviewStatus newStatus,
+        @Param("oldStatus") InterviewStatus oldStatus,
+        @Param("cutoff") LocalDateTime cutoff);
+
+    /** 招聘线下面试：面试时间（含时长）已过视为已完成 */
+    @Modifying
+    @Query("UPDATE InterviewScheduleEntity e SET e.status = :newStatus WHERE e.status = :oldStatus "
+        + "AND e.interviewTime < :cutoff AND e.applicationId IS NOT NULL")
+    int updateRecruitmentStatusBefore(
+        @Param("newStatus") InterviewStatus newStatus,
+        @Param("oldStatus") InterviewStatus oldStatus,
+        @Param("cutoff") LocalDateTime cutoff);
+
+    java.util.Optional<InterviewScheduleEntity> findByApplicationId(Long applicationId);
 }

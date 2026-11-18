@@ -1,4 +1,9 @@
 import { expect, test, type Page, type Route } from '@playwright/test';
+import { seedAdminAuth } from './helpers/auth';
+
+test.beforeEach(async ({ page }) => {
+  await seedAdminAuth(page);
+});
 
 const fixture = (name: string) => ({
   name,
