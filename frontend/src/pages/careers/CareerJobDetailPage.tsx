@@ -23,8 +23,14 @@ import {
   type JobDifficulty,
   type PublicJobDetail,
 } from '../../types/job';
-import type { CandidateJobInvitationStatus, CandidateProfile } from '../../types/recruitment';
+import {
+   inferDefaultCandidateTrack,
+  type CandidateJobInvitationStatus,
+  type CandidateProfile,
+  type CandidateTrack,
+} from '../../types/recruitment';
 import CandidateLevelSelector from '../../components/CandidateLevelSelector';
+import CandidateTrackSelector from '../../components/CandidateTrackSelector';
 
 export default function CareerJobDetailPage() {
   const { jobId } = useParams<{ jobId: string }>();
@@ -39,6 +45,7 @@ export default function CareerJobDetailPage() {
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [candidateLevel, setCandidateLevel] = useState<JobDifficulty>('mid');
+  const [candidateTrack, setCandidateTrack] = useState<CandidateTrack>('BACKEND');
   const [file, setFile] = useState<File | null>(null);
   const [consent, setConsent] = useState(false);
   const [confirmApplyOpen, setConfirmApplyOpen] = useState(false);
@@ -73,6 +80,7 @@ export default function CareerJobDetailPage() {
         if (data.difficulty) {
           setCandidateLevel(data.difficulty);
         }
+        setCandidateTrack(inferDefaultCandidateTrack(data.title));
       })
       .catch(err => setError(getErrorMessage(err)))
       .finally(() => setLoading(false));
@@ -137,6 +145,7 @@ export default function CareerJobDetailPage() {
         name: name.trim(),
         phone: phone.trim() || undefined,
         candidateLevel,
+        candidateTrack,
         consent,
       });
       if (candidate) {
@@ -237,10 +246,10 @@ export default function CareerJobDetailPage() {
           应聘流程说明
         </h2>
         <ol className="list-decimal space-y-1 pl-5 text-sm text-slate-600 dark:text-slate-300">
-          <li>通过受邀邮箱完成验证（非受邀邮箱不允许投递简历与进入面试），自主选择应聘定位并上传真实简历</li>
+          <li>通过受邀邮箱完成验证（非受邀邮箱不允许投递简历与进入面试），选择技术方向偏好（偏向前端 / 偏向后端）与应聘定位并上传真实简历</li>
           <li>
-            简历初筛通过后进入在线 AI 考核（{INTERVIEW_MODE_LABELS[job.interviewMode]}，AI 将按您自选的定位出题，约 {job.questionCount} 题
-            {job.timeLimitMinutes ? `，限时 ${job.timeLimitMinutes} 分钟` : ''}；答题时禁止搜题，后台会有提交审查）
+            后续简历初筛与在线 AI 出题（{INTERVIEW_MODE_LABELS[job.interviewMode]}，约 {job.questionCount} 题
+            {job.timeLimitMinutes ? `，限时 ${job.timeLimitMinutes} 分钟` : ''}）全程按您投递时所选方向进行，答题时无需额外再选方向（答题时禁止搜题，后台会有提交审查）
           </li>
           <li>AI 自动评估与 HR 复核（若简历存在造假将直接不通过）</li>
           <li>审核通过后通过邮件邀请您参加线下面试</li>
@@ -326,6 +335,15 @@ export default function CareerJobDetailPage() {
                 />
               </div>
             </div>
+
+            <CandidateTrackSelector
+              value={candidateTrack}
+              onChange={setCandidateTrack}
+              disabled={submitting}
+              label="选择技术方向偏好 *"
+              hint="后续简历初筛、在线笔试与面试出题均按所选方向进行，答题时无需再选"
+              testIdPrefix="apply-track"
+            />
 
             <CandidateLevelSelector
               value={candidateLevel}

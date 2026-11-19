@@ -1,5 +1,7 @@
 ## 岗位信息与候选人定位
 岗位名称：{jobTitle}
+候选人选择方向：{candidateTrack}
+方向命题要求：{trackGuidance}
 候选人自选定位：{difficulty}
 定位命题要求：{difficultyGuidance}
 

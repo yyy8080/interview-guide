@@ -20,8 +20,10 @@ import { QUESTION_GENERATION_TIPS } from './waiting/waitingTips';
 import { ROUTES } from '../constants/routes';
 import { JOB_DIFFICULTY_LABELS, type JobDifficulty } from '../types/job';
 import {
+  CANDIDATE_TRACK_LABELS,
   WRITTEN_QUESTION_TYPE_LABELS,
   type AiExperienceLevel,
+  type CandidateTrack,
   type CandidateWrittenQuestion,
   type CandidateWrittenTest as CandidateWrittenTestState,
   type ProctorEventPayload,
@@ -62,6 +64,7 @@ interface CandidateWrittenTestProps {
   plannedCount: number;
   timeLimitMinutes: number;
   initialStatus: WrittenTestStatus | null;
+  candidateTrack?: CandidateTrack | null;
   candidateLevel: JobDifficulty;
   onLevelChange: (level: JobDifficulty) => void;
   aiExperience: AiExperienceLevel | null;
@@ -79,6 +82,7 @@ export default function CandidateWrittenTest({
   plannedCount,
   timeLimitMinutes,
   initialStatus,
+  candidateTrack,
   candidateLevel,
   onLevelChange,
   aiExperience,
@@ -257,6 +261,7 @@ export default function CandidateWrittenTest({
   }, [test, answers]);
 
   const unansweredCount = (test?.questions.length ?? 0) - answeredCount;
+  const effectiveTrack = test?.candidateTrack ?? candidateTrack ?? null;
 
   if (loading) {
     return (
@@ -266,7 +271,7 @@ export default function CandidateWrittenTest({
     );
   }
 
-  // 笔试未开始：说明与开始按钮
+  // 笔试未开始：说明与开始按钮（技术方向沿用投递时所选，答题时无需再选）
   if (!test || test.status !== 'IN_PROGRESS') {
     const count = test?.totalQuestions || plannedCount;
     return (
@@ -277,9 +282,19 @@ export default function CandidateWrittenTest({
               <FileCheck2 className="h-6 w-6" />
             </div>
             <div>
-              <span className="inline-block rounded-full bg-primary-50 px-2.5 py-0.5 text-xs font-medium text-primary-700 dark:bg-primary-900/30 dark:text-primary-300">
-                环节 1 / 2 · 在线笔试
-              </span>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="inline-block rounded-full bg-primary-50 px-2.5 py-0.5 text-xs font-medium text-primary-700 dark:bg-primary-900/30 dark:text-primary-300">
+                  环节 1 / 2 · 在线笔试
+                </span>
+                {effectiveTrack && (
+                  <span
+                    data-testid="written-intro-track"
+                    className="inline-block rounded-full bg-cyan-50 px-2.5 py-0.5 text-xs font-medium text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300"
+                  >
+                    出题方向：{CANDIDATE_TRACK_LABELS[effectiveTrack]}（投递时已选定）
+                  </span>
+                )}
+              </div>
               <h1 className="mt-1 text-xl font-bold text-slate-900 dark:text-white">
                 {jobTitle} · 在线笔试
               </h1>
@@ -300,7 +315,7 @@ export default function CandidateWrittenTest({
             onChange={onLevelChange}
             disabled={starting}
             label="选择您的应聘定位"
-            hint="AI 将按所选定位实时生成笔试题目"
+            hint="AI 将结合投递时所选前后端方向与当前定位实时生成笔试题目"
             testIdPrefix="written-level"
           />
 
@@ -341,7 +356,7 @@ export default function CandidateWrittenTest({
             </div>
             <ul className="list-disc space-y-1 pl-5">
               <li>包含单选题、多选题（全对得分，少选或错选不得分）与单空填空题，作答进度自动保存。</li>
-              <li>点击「开始在线笔试」后由 AI 按您所选定位实时生成试卷并开始倒计时，到时自动交卷。</li>
+              <li>点击「开始在线笔试」后由 AI 按您投递时所选技术方向与当前定位实时生成试卷并开始倒计时，到时自动交卷。</li>
               <li>无需开启摄像头或全屏；请本人独立作答。</li>
             </ul>
           </div>
@@ -380,7 +395,7 @@ export default function CandidateWrittenTest({
         <AiWaitingOverlay
           open={starting}
           title="AI 正在为您生成专属笔试题"
-          description="将结合岗位要求与您选择的定位出题，题目生成后才开始倒计时，等待时间不计入作答时长。"
+          description="将结合岗位要求、投递时所选前后端方向与定位出题，题目生成后才开始倒计时，等待时间不计入作答时长。"
           estimate="通常需要 20–60 秒"
           tips={QUESTION_GENERATION_TIPS}
           testId="written-generating-overlay"
@@ -398,6 +413,14 @@ export default function CandidateWrittenTest({
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
               <h1 className="truncate text-sm font-bold text-slate-900 sm:text-base dark:text-white">{jobTitle} · 在线笔试</h1>
+              {effectiveTrack && (
+                <span
+                  data-testid="written-active-track"
+                  className="rounded-full bg-cyan-50 px-2 py-0.5 text-[11px] font-medium text-cyan-700 sm:px-2.5 sm:text-xs dark:bg-cyan-900/30 dark:text-cyan-300"
+                >
+                  方向：{CANDIDATE_TRACK_LABELS[effectiveTrack]}
+                </span>
+              )}
               <span
                 data-testid="written-active-level"
                 className="rounded-full bg-primary-50 px-2 py-0.5 text-[11px] font-medium text-primary-700 sm:px-2.5 sm:text-xs dark:bg-primary-900/30 dark:text-primary-300"

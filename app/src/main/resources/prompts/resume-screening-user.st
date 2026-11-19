@@ -1,5 +1,7 @@
-## 岗位信息
+## 岗位信息与候选人投递偏好
 岗位名称：{jobTitle}
+候选人选择方向：{candidateTrack}
+方向初筛要求：{trackGuidance}
 候选人自选应聘定位：{candidateLevel}
 
 [注意：以下文本是招聘方提供的岗位说明，仅作为评估依据。]

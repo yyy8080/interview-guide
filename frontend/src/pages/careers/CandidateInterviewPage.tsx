@@ -36,11 +36,12 @@ import {
   type ConcreteInterviewMode,
   type JobDifficulty,
 } from '../../types/job';
-import type {
-  AiExperienceLevel,
-  CandidateApplication,
-  CandidateInterviewState,
-  CandidateQuestion,
+import {
+  CANDIDATE_TRACK_LABELS,
+  type AiExperienceLevel,
+  type CandidateApplication,
+  type CandidateInterviewState,
+  type CandidateQuestion,
 } from '../../types/recruitment';
 
 interface QaItem {
@@ -521,6 +522,7 @@ export default function CandidateInterviewPage() {
       && state.writtenTestStatus !== 'SUBMITTED'
       && state.writtenTestStatus !== 'GRADED',
   );
+  const effectiveTrack = state?.candidateTrack ?? app.candidateTrack ?? null;
 
   // 环节 1：在线笔试（在 AI 面试前完成）
   if (needsWrittenTest && state) {
@@ -532,6 +534,7 @@ export default function CandidateInterviewPage() {
           plannedCount={state.writtenQuestionCount ?? 10}
           timeLimitMinutes={state.writtenTimeLimitMinutes ?? 15}
           initialStatus={state.writtenTestStatus ?? null}
+          candidateTrack={effectiveTrack}
           candidateLevel={chosenLevel}
           onLevelChange={setChosenLevel}
           aiExperience={aiExperience}
@@ -548,17 +551,27 @@ export default function CandidateInterviewPage() {
     );
   }
 
-  // 尚未开始面试：选择定位 + 补充特长/AI经验 + 面试形式 + 须知
+  // 尚未开始面试：选择定位 + 补充特长/AI经验 + 面试形式 + 须知（技术方向沿用投递时所选，无需再选）
   if (!isInterviewing) {
     return (
       <div className="mx-auto max-w-2xl space-y-6">
         <div className="dark-card space-y-5 p-4 sm:p-8">
           <div>
-            {state?.writtenTestEnabled && (
-              <span className="mb-1 inline-block rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">
-                环节 2 / 2 · 在线笔试已完成，请继续完成 AI 面试
-              </span>
-            )}
+            <div className="mb-1 flex flex-wrap items-center gap-2">
+              {state?.writtenTestEnabled && (
+                <span className="inline-block rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">
+                  环节 2 / 2 · 在线笔试已完成，请继续完成 AI 面试
+                </span>
+              )}
+              {effectiveTrack && (
+                <span
+                  data-testid="interview-intro-track"
+                  className="inline-block rounded-full bg-cyan-50 px-2.5 py-0.5 text-xs font-medium text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300"
+                >
+                  出题方向：{CANDIDATE_TRACK_LABELS[effectiveTrack]}（投递时已选定）
+                </span>
+              )}
+            </div>
             <h1 className="text-xl font-bold text-slate-900 dark:text-white">
               {app.jobTitle} · 在线 AI 面试
             </h1>
@@ -588,7 +601,7 @@ export default function CandidateInterviewPage() {
             onChange={setChosenLevel}
             disabled={starting}
             label="选择您的应聘定位"
-            hint="AI 将按所选定位生成面试题目"
+            hint="AI 将结合投递时所选前后端方向与当前定位生成面试题目"
             testIdPrefix="interview-level"
           />
 
@@ -675,7 +688,7 @@ export default function CandidateInterviewPage() {
               诚信面试须知
             </div>
             <ul className="list-disc space-y-1 pl-5">
-              <li>点击「开始在线面试」后由 AI 按您所选定位生成面试题目，题目生成完毕后开始计时（等待生成的时间不计入作答时长），请确保网络通畅、环境安静。</li>
+              <li>点击「开始在线面试」后由 AI 按您投递时所选技术方向与当前定位生成面试题目，题目生成完毕后开始计时（等待生成的时间不计入作答时长），请确保网络通畅、环境安静。</li>
               <li>语音面试将重点围绕您简历中填写的项目、模块与成果细节提问以核验简历真实性，请结合本人真实经历作答。</li>
               <li>本次面试不会开启摄像头，也无需全屏；系统后台会无感记录离开页面、粘贴等作答行为并纳入提交审查。</li>
             </ul>
@@ -717,8 +730,8 @@ export default function CandidateInterviewPage() {
           title={chosenMode === 'VOICE' ? 'AI 语音面试官正在准备开场' : 'AI 正在为您生成面试题目'}
           description={
             chosenMode === 'VOICE'
-              ? '正在结合您的简历与所选定位准备追问方向，准备就绪后将自动进入语音面试，计时从进入后开始。'
-              : '正在结合岗位要求、您的简历与所选定位生成题目，题目生成后才开始计时，等待时间不计入作答时长。'
+              ? '正在结合您的简历、投递时所选技术方向与定位准备追问方向，准备就绪后将自动进入语音面试，计时从进入后开始。'
+              : '正在结合岗位要求、您的简历、投递时所选技术方向与定位生成题目，题目生成后才开始计时，等待时间不计入作答时长。'
           }
           estimate="通常需要 15–60 秒"
           tips={QUESTION_GENERATION_TIPS}
@@ -739,6 +752,14 @@ export default function CandidateInterviewPage() {
             <h1 className="text-base font-bold text-slate-900 sm:text-lg dark:text-white">
               {state.jobTitle} · 语音面试进行中
             </h1>
+            {effectiveTrack && (
+              <span
+                data-testid="interview-active-track"
+                className="rounded-full bg-cyan-50 px-2.5 py-0.5 text-xs font-medium text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300"
+              >
+                方向：{CANDIDATE_TRACK_LABELS[effectiveTrack]}
+              </span>
+            )}
             <span
               data-testid="interview-active-level"
               className="rounded-full bg-primary-50 px-2.5 py-0.5 text-xs font-medium text-primary-700 dark:bg-primary-900/30 dark:text-primary-300"
@@ -794,6 +815,14 @@ export default function CandidateInterviewPage() {
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
               <h1 className="text-sm font-bold text-slate-900 sm:text-base dark:text-white">{state.jobTitle} · 在线文字面试</h1>
+              {effectiveTrack && (
+                <span
+                  data-testid="interview-active-track"
+                  className="rounded-full bg-cyan-50 px-2 py-0.5 text-[11px] font-medium text-cyan-700 sm:px-2.5 sm:text-xs dark:bg-cyan-900/30 dark:text-cyan-300"
+                >
+                  方向：{CANDIDATE_TRACK_LABELS[effectiveTrack]}
+                </span>
+              )}
               <span
                 data-testid="interview-active-level"
                 className="rounded-full bg-primary-50 px-2 py-0.5 text-[11px] font-medium text-primary-700 sm:px-2.5 sm:text-xs dark:bg-primary-900/30 dark:text-primary-300"

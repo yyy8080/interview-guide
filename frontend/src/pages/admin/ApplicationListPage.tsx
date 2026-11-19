@@ -21,6 +21,7 @@ import { INTERVIEW_MODE_LABELS, JOB_DIFFICULTY_LABELS, type JobPosition } from '
 import {
   APPLICATION_STATUS_BADGES,
   APPLICATION_STATUS_LABELS,
+  CANDIDATE_TRACK_LABELS,
   PROCTOR_RISK_BADGES,
   PROCTOR_RISK_LABELS,
   type ApplicationListItem,
@@ -399,6 +400,15 @@ export default function ApplicationListPage() {
                       <td className="px-4 py-3 text-slate-700 dark:text-slate-200">
                         <div>{item.jobTitle}</div>
                         <div className="flex flex-wrap items-center gap-1.5 text-xs text-slate-400">
+                          {item.candidateTrack && (
+                            <span
+                              data-testid={`track-cell-${item.id}`}
+                              className="font-medium text-cyan-700 dark:text-cyan-300"
+                            >
+                              方向：{CANDIDATE_TRACK_LABELS[item.candidateTrack]}
+                            </span>
+                          )}
+                          {item.candidateTrack && item.candidateLevel && <span>·</span>}
                           {item.candidateLevel && (
                             <span
                               data-testid={`level-cell-${item.id}`}
@@ -407,7 +417,7 @@ export default function ApplicationListPage() {
                               定位：{JOB_DIFFICULTY_LABELS[item.candidateLevel]}
                             </span>
                           )}
-                          {item.candidateLevel && item.interviewMode && <span>·</span>}
+                          {(item.candidateTrack || item.candidateLevel) && item.interviewMode && <span>·</span>}
                           {item.interviewMode && (
                             <span>{INTERVIEW_MODE_LABELS[item.interviewMode]}</span>
                           )}

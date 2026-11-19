@@ -15,6 +15,7 @@ public record CandidateApplicationDTO(
     String location,
     CandidateStage stage,
     String candidateLevel,
+    String candidateTrack,
     String aiExperience,
     String specialties,
     List<InterviewMode> availableModes,

@@ -1692,4 +1692,298 @@ test.describe('企业招聘全流程（候选人门户 + HR 后台审核与邮�
       '从外部复制粘贴的答案片段：设置一个很长的过期时间即可',
     );
   });
+
+  test('候选人投递简历时选择偏向前端/后端，后续笔试与面试自动沿用该方向出题且答题时无需再选', async ({ page }) => {
+    await page.addInitScript(() => {
+      localStorage.setItem('ig_candidate_token', 'cand-jwt-track-960');
+      localStorage.setItem(
+        'ig_candidate_profile',
+        JSON.stringify({ id: 160, email: 'track@example.com', name: '周宁', phone: '13600008888' }),
+      );
+    });
+
+    let stage: 'SCREENING' | 'INTERVIEW_PENDING' | 'INTERVIEWING' = 'SCREENING';
+    let selectedTrack: 'FRONTEND' | 'BACKEND' = 'BACKEND';
+    let writtenStatus: 'IN_PROGRESS' | 'GRADED' | null = null;
+    let interviewStarted = false;
+
+    await page.route('**/api/public/jobs/35', route =>
+      ok(route, {
+        id: 35,
+        title: '全栈软件研发工程师',
+        department: '产品工程部',
+        location: '深圳',
+        employmentType: 'FULL_TIME',
+        headcount: 3,
+        salaryRange: '25K-40K',
+        jdText: '参与企业级 Web 应用前后端研发与工程化建设。',
+        difficulty: 'mid',
+        interviewMode: 'BOTH',
+        questionCount: 2,
+        timeLimitMinutes: 30,
+        writtenTestEnabled: true,
+        writtenQuestionCount: 1,
+        writtenTimeLimitMinutes: 15,
+        deadline: '2026-12-31T23:59:59',
+        publishedAt: '2026-11-01T10:00:00',
+      }),
+    );
+
+    await page.route('**/api/candidate/jobs/35/invitation', route =>
+      ok(route, {
+        inviteOnly: true,
+        canApply: true,
+        invited: true,
+        expired: false,
+        revoked: false,
+        skipScreening: false,
+        expiresAt: '2026-12-31T23:59:59',
+        message: '已获本岗位面试邀请',
+      }),
+    );
+
+    const buildCandidateApp = () => ({
+      id: 960,
+      jobId: 35,
+      jobTitle: '全栈软件研发工程师',
+      department: '产品工程部',
+      location: '深圳',
+      candidateLevel: 'mid',
+      candidateTrack: selectedTrack,
+      stage,
+      availableModes: ['TEXT', 'VOICE'],
+      interviewMode: interviewStarted ? 'TEXT' : null,
+      questionCount: 2,
+      timeLimitMinutes: 30,
+      submittedAt: '2026-11-19T10:00:00',
+      inviteExpiresAt: '2026-11-26T10:00:00',
+      interviewStartedAt: interviewStarted ? '2026-11-19T10:20:00' : null,
+      interviewDeadlineAt: interviewStarted ? '2026-11-19T10:50:00' : null,
+      interviewCompletedAt: null,
+      offlineInterview: null,
+    });
+
+    await page.route('**/api/candidate/jobs/35/apply', route => {
+      const postBody = route.request().postData() ?? '';
+      expect(postBody).toContain('name="candidateTrack"');
+      expect(postBody).toContain('FRONTEND');
+      selectedTrack = 'FRONTEND';
+      stage = 'SCREENING';
+      return ok(route, buildCandidateApp());
+    });
+
+    await page.route('**/api/candidate/applications', route => ok(route, [buildCandidateApp()]));
+    await page.route('**/api/candidate/applications/960', route => ok(route, buildCandidateApp()));
+    await page.route('**/api/candidate/applications/960/proctor-events', route => ok(route, null));
+
+    await page.route('**/api/candidate/applications/960/interview', route =>
+      ok(route, {
+        applicationId: 960,
+        jobTitle: '全栈软件研发工程师',
+        candidateLevel: 'mid',
+        candidateTrack: selectedTrack,
+        mode: interviewStarted ? 'TEXT' : null,
+        stage: interviewStarted ? 'INTERVIEWING' : 'INTERVIEW_PENDING',
+        startedAt: interviewStarted ? '2026-11-19T10:20:00' : null,
+        deadlineAt: interviewStarted ? '2026-11-19T10:50:00' : null,
+        remainingSeconds: interviewStarted ? 1800 : null,
+        totalQuestions: interviewStarted ? 1 : 0,
+        currentQuestionIndex: 0,
+        currentQuestion: interviewStarted
+          ? {
+              questionIndex: 0,
+              question: '请结合 React Fiber 架构说明并发渲染的调度机制',
+              category: 'React 原理',
+              followUp: false,
+            }
+          : null,
+        finished: false,
+        voiceSessionId: null,
+        voiceWsPath: null,
+        plannedDurationMinutes: null,
+        writtenTestEnabled: true,
+        writtenTestStatus: writtenStatus,
+        writtenQuestionCount: 1,
+        writtenTimeLimitMinutes: 15,
+      }),
+    );
+
+    await page.route('**/api/candidate/applications/960/written-test/start', route => {
+      const body = route.request().postDataJSON() as Record<string, unknown>;
+      // 答题开始接口无需额外传 candidateTrack，后端直接读取投递记录中的技术方向
+      expect(body.candidateTrack).toBeUndefined();
+      writtenStatus = 'IN_PROGRESS';
+      return ok(route, {
+        applicationId: 960,
+        candidateLevel: 'mid',
+        candidateTrack: 'FRONTEND',
+        status: 'IN_PROGRESS',
+        totalQuestions: 1,
+        questions: [
+          {
+            index: 0,
+            type: 'SINGLE_CHOICE',
+            question: '在浏览器事件循环中，Promise.then 回调属于哪类队列？',
+            options: ['宏任务队列', '微任务队列', '渲染帧队列'],
+            category: 'JavaScript 与浏览器',
+          },
+        ],
+        answers: {},
+        startedAt: '2026-11-19T10:05:00',
+        deadlineAt: '2026-11-19T10:20:00',
+        remainingSeconds: 900,
+        watermarkText: '周宁 · #960',
+        proctorAwayReminder: true,
+      });
+    });
+
+    await page.route('**/api/candidate/applications/960/written-test/answers', route => ok(route, null));
+
+    await page.route('**/api/candidate/applications/960/written-test/submit', route => {
+      writtenStatus = 'GRADED';
+      return ok(route, {
+        applicationId: 960,
+        candidateLevel: 'mid',
+        candidateTrack: 'FRONTEND',
+        status: 'GRADED',
+        totalQuestions: 1,
+        questions: [],
+        answers: {},
+        startedAt: '2026-11-19T10:05:00',
+        deadlineAt: '2026-11-19T10:20:00',
+        remainingSeconds: null,
+        watermarkText: '周宁 · #960',
+        proctorAwayReminder: true,
+      });
+    });
+
+    await page.route('**/api/candidate/applications/960/interview/start', route => {
+      const body = route.request().postDataJSON() as Record<string, unknown>;
+      expect(body.candidateTrack).toBeUndefined();
+      interviewStarted = true;
+      stage = 'INTERVIEWING';
+      return ok(route, {
+        applicationId: 960,
+        jobTitle: '全栈软件研发工程师',
+        candidateLevel: 'mid',
+        candidateTrack: 'FRONTEND',
+        mode: 'TEXT',
+        stage: 'INTERVIEWING',
+        startedAt: '2026-11-19T10:20:00',
+        deadlineAt: '2026-11-19T10:50:00',
+        remainingSeconds: 1800,
+        totalQuestions: 1,
+        currentQuestionIndex: 0,
+        currentQuestion: {
+          questionIndex: 0,
+          question: '请结合 React Fiber 架构说明并发渲染的调度机制',
+          category: 'React 原理',
+          followUp: false,
+        },
+        finished: false,
+        voiceSessionId: null,
+        voiceWsPath: null,
+        plannedDurationMinutes: null,
+      });
+    });
+
+    // 1. 候选人在岗位详情页投递简历时选择「偏向前端」
+    await page.goto('/careers/35');
+    await expect(page.getByTestId('apply-track-BACKEND')).toHaveAttribute('aria-pressed', 'true');
+    await page.getByTestId('apply-track-FRONTEND').click();
+    await expect(page.getByTestId('apply-track-FRONTEND')).toHaveAttribute('aria-pressed', 'true');
+
+    await page.locator('input[type="file"]').setInputFiles({
+      name: 'zhouning-fe.pdf',
+      mimeType: 'application/pdf',
+      buffer: Buffer.from('%PDF-1.4 frontend resume'),
+    });
+    await page.locator('input[type="checkbox"]').check();
+    await page.getByRole('button', { name: '提交简历' }).click();
+    await page.getByTestId('confirm-apply-dialog-btn').click();
+
+    // 2. 我的投递页直接展示已选方向徽章「方向：偏向前端」
+    await expect(page.getByRole('heading', { name: '我的投递' })).toBeVisible();
+    await expect(page.getByTestId('my-app-track-960')).toContainText('方向：偏向前端');
+
+    // 3. 初筛通过后进入在线笔试：展示只读「出题方向：偏向前端（投递时已选定）」，不再出现前后端选择器
+    stage = 'INTERVIEW_PENDING';
+    await page.getByRole('button', { name: '刷新进度' }).click();
+    await page.getByRole('link', { name: '开始在线面试' }).click();
+    await expect(page.getByTestId('written-intro-card')).toBeVisible();
+    await expect(page.getByTestId('written-intro-track')).toContainText('出题方向：偏向前端（投递时已选定）');
+    await expect(page.locator('[data-testid$="-FRONTEND"]')).toHaveCount(0);
+    await expect(page.locator('[data-testid$="-BACKEND"]')).toHaveCount(0);
+
+    await page.getByTestId('start-written-btn').click();
+    await page.getByTestId('confirm-start-written-btn').click();
+    await expect(page.getByTestId('written-active-panel')).toBeVisible();
+    await expect(page.getByTestId('written-active-track')).toContainText('方向：偏向前端');
+    await page.getByTestId('written-opt-0-B').click();
+    await page.getByTestId('submit-written-btn').click();
+
+    // 4. 笔试交卷进入 AI 面试：同样只读展示「出题方向：偏向前端（投递时已选定）」，无需重复选择
+    await expect(page.getByTestId('written-finished-banner')).toBeVisible();
+    await expect(page.getByTestId('interview-intro-track')).toContainText('出题方向：偏向前端（投递时已选定）');
+    await expect(page.locator('[data-testid$="-FRONTEND"]')).toHaveCount(0);
+    await expect(page.locator('[data-testid$="-BACKEND"]')).toHaveCount(0);
+
+    await page.getByTestId('start-interview-btn').click();
+    await page.getByTestId('confirm-start-interview-btn').click();
+    await expect(page.getByTestId('interview-active-track')).toContainText('方向：偏向前端');
+    await expect(page.getByText('请结合 React Fiber 架构说明并发渲染的调度机制')).toBeVisible();
+
+    // 5. HR 后台投递详情展示候选人所选技术方向徽章
+    await seedAdminAuth(page, 'ADMIN');
+    await page.route('**/api/admin/applications/960', route =>
+      ok(route, {
+        id: 960,
+        status: 'INTERVIEWING',
+        candidateId: 160,
+        candidateName: '周宁',
+        candidateEmail: 'track@example.com',
+        candidatePhone: '13600008888',
+        candidateLevel: 'mid',
+        candidateTrack: 'FRONTEND',
+        jobId: 35,
+        jobTitle: '全栈软件研发工程师',
+        jobDifficulty: 'mid',
+        aiPassThreshold: 70,
+        screeningThreshold: 60,
+        resumeId: 490,
+        resumeFilename: 'zhouning-fe.pdf',
+        resumeText: '4 年 React / TypeScript 前端工程化研发经验',
+        screeningScore: 86,
+        screeningResult: null,
+        writtenTest: null,
+        interviewMode: 'TEXT',
+        interviewSessionId: 'sess-960',
+        voiceSessionId: null,
+        interviewStartedAt: '2026-11-19T10:20:00',
+        interviewCompletedAt: null,
+        aiScore: null,
+        aiDecision: null,
+        aiReview: null,
+        taskError: null,
+        hrReviewerId: null,
+        hrReviewerName: null,
+        hrComment: null,
+        hrReviewedAt: null,
+        proctorCounts: {},
+        proctorEvents: [],
+        proctorRisk: null,
+        answerTelemetry: [],
+        logs: [],
+        offlineInterview: null,
+        emails: [],
+        submittedAt: '2026-11-19T10:00:00',
+        inviteExpiresAt: '2026-11-26T10:00:00',
+        updatedAt: '2026-11-19T10:20:05',
+      }),
+    );
+
+    await page.goto('/admin/applications/960');
+    await expect(page.getByTestId('candidate-track-badge')).toContainText('技术方向：偏向前端');
+  });
 });
+

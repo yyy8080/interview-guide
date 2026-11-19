@@ -8,6 +8,7 @@ import type {
   CandidateJobInvitationStatus,
   CandidateLoginResponse,
   CandidateProfile,
+  CandidateTrack,
   CandidateWrittenTest,
   AnswerTelemetry,
   ProctorEventPayload,
@@ -43,6 +44,7 @@ export const candidateApi = {
     name: string;
     phone?: string;
     candidateLevel?: JobDifficulty;
+    candidateTrack?: CandidateTrack | null;
     consent: boolean;
   }): Promise<CandidateApplication> {
     const formData = new FormData();
@@ -53,6 +55,9 @@ export const candidateApi = {
     }
     if (params.candidateLevel) {
       formData.append('candidateLevel', params.candidateLevel);
+    }
+    if (params.candidateTrack) {
+      formData.append('candidateTrack', params.candidateTrack);
     }
     formData.append('consent', String(params.consent));
     return request.upload(`/api/candidate/jobs/${params.jobId}/apply`, formData);
@@ -68,12 +73,15 @@ export const candidateApi = {
 
   resubmitResume(
     applicationId: number,
-    params: { file: File; candidateLevel?: JobDifficulty },
+    params: { file: File; candidateLevel?: JobDifficulty; candidateTrack?: CandidateTrack | null },
   ): Promise<CandidateApplication> {
     const formData = new FormData();
     formData.append('file', params.file);
     if (params.candidateLevel) {
       formData.append('candidateLevel', params.candidateLevel);
+    }
+    if (params.candidateTrack) {
+      formData.append('candidateTrack', params.candidateTrack);
     }
     return request.upload(`/api/candidate/applications/${applicationId}/resubmit-resume`, formData);
   },

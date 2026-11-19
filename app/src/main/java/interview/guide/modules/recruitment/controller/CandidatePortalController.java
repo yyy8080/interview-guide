@@ -73,9 +73,11 @@ public class CandidatePortalController {
       @RequestParam("name") String name,
       @RequestParam(value = "phone", required = false) String phone,
       @RequestParam(value = "candidateLevel", required = false) String candidateLevel,
+      @RequestParam(value = "candidateTrack", required = false) String candidateTrack,
       @RequestParam(value = "consent", defaultValue = "false") boolean consent) {
     Long candidateId = candidateAuthService.requireCandidateId(token);
-    return Result.success(applicationService.apply(jobId, candidateId, name, phone, consent, file, candidateLevel));
+    return Result.success(
+        applicationService.apply(jobId, candidateId, name, phone, consent, file, candidateLevel, candidateTrack));
   }
 
   @GetMapping("/applications")
@@ -97,9 +99,10 @@ public class CandidatePortalController {
       @RequestHeader(value = CandidateAuthService.TOKEN_HEADER, required = false) String token,
       @PathVariable Long id,
       @RequestParam("file") MultipartFile file,
-      @RequestParam(value = "candidateLevel", required = false) String candidateLevel) {
+      @RequestParam(value = "candidateLevel", required = false) String candidateLevel,
+      @RequestParam(value = "candidateTrack", required = false) String candidateTrack) {
     Long candidateId = candidateAuthService.requireCandidateId(token);
-    return Result.success(applicationService.resubmitResume(candidateId, id, file, candidateLevel));
+    return Result.success(applicationService.resubmitResume(candidateId, id, file, candidateLevel, candidateTrack));
   }
 
   // ========== 在线面试 ==========

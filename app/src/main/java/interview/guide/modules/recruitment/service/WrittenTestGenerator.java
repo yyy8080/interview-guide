@@ -78,7 +78,7 @@ public class WrittenTestGenerator {
    * 按指定应聘定位生成笔试题；LLM 调用失败或没有任何合规题目时抛出 WRITTEN_TEST_GENERATION_FAILED
    */
   public List<WrittenQuestion> generate(JobPositionEntity job, List<CategoryDTO> categories, String difficulty) {
-    return generate(job, categories, difficulty, null, null);
+    return generate(job, categories, difficulty, null, null, null);
   }
 
   /**
@@ -86,23 +86,36 @@ public class WrittenTestGenerator {
    */
   public List<WrittenQuestion> generate(JobPositionEntity job, List<CategoryDTO> categories, String difficulty,
                                         String aiExperience, String specialties) {
+    return generate(job, categories, difficulty, null, aiExperience, specialties);
+  }
+
+  /**
+   * 按候选人投递时选择的前后端方向、应聘定位及补充特长生成笔试题
+   */
+  public List<WrittenQuestion> generate(JobPositionEntity job, List<CategoryDTO> categories, String difficulty,
+                                        String candidateTrack, String aiExperience, String specialties) {
     int single = Math.max(0, job.getWrittenSingleCount());
     int multi = Math.max(0, job.getWrittenMultiCount());
     int fill = Math.max(0, job.getWrittenFillCount());
     String effectiveDifficulty = interview.guide.modules.recruitment.model.CandidateLevels.resolve(
         difficulty, job.getDifficulty());
+    List<CategoryDTO> filteredCategories = interview.guide.modules.recruitment.model.CandidateTracks
+        .filterCategoriesForTrack(categories, candidateTrack);
     String systemPrompt = systemPromptTemplate.render() + "\n\n" + outputConverter.getFormat();
-    String userPrompt = userPromptTemplate.render(Map.of(
-        "jobTitle", job.getTitle(),
-        "difficulty", difficultyLabel(effectiveDifficulty),
-        "difficultyGuidance", interview.guide.modules.recruitment.model.CandidateLevels.questionGuidance(effectiveDifficulty),
-        "candidateSupplement", interview.guide.modules.recruitment.model.CandidateAiExperiences.describeForPrompt(
-            aiExperience, specialties),
-        "jdText", ResumeScreeningService.truncate(job.getJdText(), MAX_JD_CHARS),
-        "categories", describeCategories(categories),
-        "singleCount", single,
-        "multiCount", multi,
-        "fillCount", fill));
+    Map<String, Object> vars = new java.util.HashMap<>();
+    vars.put("jobTitle", job.getTitle());
+    vars.put("candidateTrack", interview.guide.modules.recruitment.model.CandidateTracks.labelOrDefault(candidateTrack));
+    vars.put("trackGuidance", interview.guide.modules.recruitment.model.CandidateTracks.writtenQuestionGuidance(candidateTrack));
+    vars.put("difficulty", difficultyLabel(effectiveDifficulty));
+    vars.put("difficultyGuidance", interview.guide.modules.recruitment.model.CandidateLevels.questionGuidance(effectiveDifficulty));
+    vars.put("candidateSupplement", interview.guide.modules.recruitment.model.CandidateAiExperiences.describeForPrompt(
+        aiExperience, specialties));
+    vars.put("jdText", ResumeScreeningService.truncate(job.getJdText(), MAX_JD_CHARS));
+    vars.put("categories", describeCategories(filteredCategories, candidateTrack));
+    vars.put("singleCount", single);
+    vars.put("multiCount", multi);
+    vars.put("fillCount", fill);
+    String userPrompt = userPromptTemplate.render(vars);
     ChatClient chatClient = llmProviderRegistry.getChatClientOrDefault(job.getLlmProvider());
     GeneratedWrittenTest raw = structuredOutputInvoker.invoke(chatClient, systemPrompt, userPrompt, outputConverter,
         ErrorCode.WRITTEN_TEST_GENERATION_FAILED, "AI 笔试出题失败：", "AI笔试出题", log);
@@ -112,8 +125,8 @@ public class WrittenTestGenerator {
     }
     int expected = single + multi + fill;
     if (questions.size() < expected) {
-      log.warn("AI 笔试出题数量不足: jobId={}, level={}, expected={}, actual={}",
-          job.getId(), effectiveDifficulty, expected, questions.size());
+      log.warn("AI 笔试出题数量不足: jobId={}, track={}, level={}, expected={}, actual={}",
+          job.getId(), candidateTrack, effectiveDifficulty, expected, questions.size());
     }
     return questions;
   }
@@ -320,7 +333,15 @@ public class WrittenTestGenerator {
   }
 
   private static String describeCategories(List<CategoryDTO> categories) {
+    return describeCategories(categories, null);
+  }
+
+  private static String describeCategories(List<CategoryDTO> categories, String candidateTrack) {
     if (categories == null || categories.isEmpty()) {
+      String trackLabel = interview.guide.modules.recruitment.model.CandidateTracks.label(candidateTrack);
+      if (trackLabel != null) {
+        return "（未限定固定细分维度，请紧扣候选人所选【" + trackLabel + "】方向与岗位 JD 核心要求确定考察重点）";
+      }
       return "（未配置，请根据岗位 JD 自行确定考察重点）";
     }
     return categories.stream()

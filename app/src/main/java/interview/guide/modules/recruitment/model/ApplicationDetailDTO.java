@@ -18,6 +18,7 @@ public record ApplicationDetailDTO(
     String candidateEmail,
     String candidatePhone,
     String candidateLevel,
+    String candidateTrack,
     String aiExperience,
     String specialties,
     // 岗位

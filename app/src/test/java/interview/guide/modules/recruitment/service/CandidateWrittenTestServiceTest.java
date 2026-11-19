@@ -241,4 +241,63 @@ class CandidateWrittenTestServiceTest {
     assertThat(app.getAiExperience()).isEqualTo("TOOL_USER");
     assertThat(app.getSpecialties()).isEqualTo("熟悉 JVM 调优与 Cursor 辅助研发");
   }
+
+  @Test
+  @DisplayName("开始笔试无需重复选择方向，自动读取投递时的偏向前端/后端偏好传给 AI 出题器")
+  void startsWrittenTestUsingApplicationTrackAutomatically() {
+    ApplicationEntity app = new ApplicationEntity();
+    app.setId(220L);
+    app.setCandidateId(10L);
+    app.setJobId(32L);
+    app.setCandidateName("陈前端");
+    app.setCandidateLevel("mid");
+    app.setCandidateTrack("FRONTEND");
+    app.setStatus(ApplicationStatus.INTERVIEW_INVITED);
+    app.setInviteExpiresAt(LocalDateTime.now().plusDays(2));
+
+    JobPositionEntity job = new JobPositionEntity();
+    job.setId(32L);
+    job.setWrittenTestEnabled(true);
+    job.setWrittenTimeLimitMinutes(15);
+
+    List<WrittenQuestion> generated = List.of(
+        new WrittenQuestion(0, WrittenQuestionType.SINGLE_CHOICE, "浏览器事件循环中微任务何时执行？",
+            List.of("宏任务前", "当前宏任务同步栈清空后、下次渲染前", "仅定时器后"), List.of("B"), "", "JavaScript")
+    );
+    when(applicationRepository.findByIdAndCandidateId(220L, 10L)).thenReturn(Optional.of(app));
+    when(applicationRepository.findByIdForUpdate(220L)).thenReturn(Optional.of(app));
+    when(jobPositionService.getEntity(32L)).thenReturn(job);
+    when(redisService.executeWithLock(any(), anyLong(), anyLong(), any(), any()))
+        .thenAnswer(inv -> ((RedisService.LockedOperation<?>) inv.getArgument(4)).execute());
+    doAnswer(inv -> {
+      ((Runnable) inv.getArgument(0)).run();
+      return null;
+    }).when(transactionalExecutor).run(any());
+    when(generator.generate(any(), any(),
+        org.mockito.ArgumentMatchers.eq("mid"),
+        org.mockito.ArgumentMatchers.eq("FRONTEND"),
+        org.mockito.ArgumentMatchers.isNull(),
+        org.mockito.ArgumentMatchers.isNull()))
+        .thenReturn(generated);
+
+    AtomicReference<WrittenTestEntity> savedRef = new AtomicReference<>();
+    when(writtenTestRepository.save(any())).thenAnswer(inv -> {
+      WrittenTestEntity e = inv.getArgument(0);
+      e.setId(520L);
+      savedRef.set(e);
+      return e;
+    });
+    when(writtenTestRepository.findByApplicationId(220L))
+        .thenAnswer(inv -> Optional.ofNullable(savedRef.get()));
+
+    CandidateWrittenTestDTO dto = service.start(10L, 220L);
+
+    assertThat(dto.candidateTrack()).isEqualTo("FRONTEND");
+    assertThat(dto.questions()).hasSize(1);
+    verify(generator).generate(any(), any(),
+        org.mockito.ArgumentMatchers.eq("mid"),
+        org.mockito.ArgumentMatchers.eq("FRONTEND"),
+        org.mockito.ArgumentMatchers.isNull(),
+        org.mockito.ArgumentMatchers.isNull());
+  }
 }

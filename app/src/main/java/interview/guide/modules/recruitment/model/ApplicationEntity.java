@@ -51,6 +51,10 @@ public class ApplicationEntity {
   @Column(name = "candidate_level", length = 16)
   private String candidateLevel;
 
+  /** 候选人投递时选择的技术方向偏好（FRONTEND 偏向前端 / BACKEND 偏向后端） */
+  @Column(name = "candidate_track", length = 16)
+  private String candidateTrack;
+
   /** 候选人答题前选填的 AI 相关经验（NONE / TOOL_USER / PROJECT_PRACTICE） */
   @Column(name = "ai_experience", length = 32)
   private String aiExperience;

@@ -120,6 +120,8 @@ public class CandidateDecisionService {
     Map<String, Object> variables = new HashMap<>();
     variables.put("jobTitle", job.getTitle());
     variables.put("jobDifficulty", interview.guide.modules.recruitment.model.CandidateLevels.label(job.getDifficulty()));
+    variables.put("candidateTrack", interview.guide.modules.recruitment.model.CandidateTracks.labelOrDefault(
+        application.getCandidateTrack()));
     variables.put("candidateLevel", interview.guide.modules.recruitment.model.CandidateLevels.label(effectiveLevel));
     variables.put("candidateSupplement", interview.guide.modules.recruitment.model.CandidateAiExperiences.describeForPrompt(
         application.getAiExperience(), application.getSpecialties()));

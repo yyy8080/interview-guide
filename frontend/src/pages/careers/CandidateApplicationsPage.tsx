@@ -15,6 +15,7 @@ import { candidateApi } from '../../api/candidate';
 import { getErrorMessage } from '../../api/request';
 import CandidateAssessmentFeedbackCard from '../../components/CandidateAssessmentFeedbackCard';
 import CandidateLevelSelector from '../../components/CandidateLevelSelector';
+import CandidateTrackSelector from '../../components/CandidateTrackSelector';
 import ConfirmDialog from '../../components/ConfirmDialog';
 import AiWaitingOverlay from '../../components/waiting/AiWaitingOverlay';
 import AiWaitingPanel from '../../components/waiting/AiWaitingPanel';
@@ -26,8 +27,11 @@ import { INTERVIEW_MODE_LABELS, JOB_DIFFICULTY_LABELS, type JobDifficulty } from
 import {
   AI_EXPERIENCE_LABELS,
   CANDIDATE_STAGE_LABELS,
+  CANDIDATE_TRACK_LABELS,
+  inferDefaultCandidateTrack,
   type CandidateApplication,
   type CandidateStage,
+  type CandidateTrack,
 } from '../../types/recruitment';
 
 /** AI 初筛 / 评估进行中的静默轮询间隔与上限（约 3 分钟） */
@@ -60,6 +64,7 @@ export default function CandidateApplicationsPage() {
   const [resubmitOpenId, setResubmitOpenId] = useState<number | null>(null);
   const [resubmitFile, setResubmitFile] = useState<File | null>(null);
   const [resubmitLevel, setResubmitLevel] = useState<JobDifficulty>('mid');
+  const [resubmitTrack, setResubmitTrack] = useState<CandidateTrack>('BACKEND');
   const [confirmResubmitId, setConfirmResubmitId] = useState<number | null>(null);
   const [resubmitting, setResubmitting] = useState(false);
 
@@ -165,6 +170,7 @@ export default function CandidateApplicationsPage() {
       const updated = await candidateApi.resubmitResume(id, {
         file: resubmitFile,
         candidateLevel: resubmitLevel,
+        candidateTrack: resubmitTrack,
       });
       setItems(prev => prev.map(item => (item.id === id ? updated : item)));
       setResubmitOpenId(null);
@@ -240,6 +246,14 @@ export default function CandidateApplicationsPage() {
                         ? '简历初筛未通过'
                         : CANDIDATE_STAGE_LABELS[app.stage]}
                     </span>
+                    {app.candidateTrack && (
+                      <span
+                        data-testid={`my-app-track-${app.id}`}
+                        className="rounded-full bg-cyan-50 px-2.5 py-0.5 text-xs font-medium text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300"
+                      >
+                        方向：{CANDIDATE_TRACK_LABELS[app.candidateTrack]}
+                      </span>
+                    )}
                     {app.candidateLevel && (
                       <span
                         data-testid={`my-app-level-${app.id}`}
@@ -349,6 +363,7 @@ export default function CandidateApplicationsPage() {
                               setResubmitOpenId(app.id);
                               setResubmitFile(null);
                               setResubmitLevel(app.candidateLevel ?? 'mid');
+                              setResubmitTrack(app.candidateTrack ?? inferDefaultCandidateTrack(app.jobTitle));
                             }
                           }}
                           className="btn-primary flex items-center gap-1.5 rounded-xl px-3.5 py-1.5 text-xs font-medium"
@@ -396,6 +411,15 @@ export default function CandidateApplicationsPage() {
                                 <strong>简历不允许造假，否则会直接不通过</strong>；进入面试答题时禁止搜题，后台会有提交审查。
                               </div>
                             </div>
+
+                            <CandidateTrackSelector
+                              value={resubmitTrack}
+                              onChange={setResubmitTrack}
+                              disabled={actingId === app.id}
+                              label="确认或调整技术方向偏好"
+                              hint="重新初筛及后续笔试、面试出题均按此方向进行"
+                              testIdPrefix={`resubmit-track-${app.id}`}
+                            />
 
                             <CandidateLevelSelector
                               value={resubmitLevel}

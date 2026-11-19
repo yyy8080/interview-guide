@@ -96,7 +96,10 @@ public class ApplicationWorkflowService {
     JobPositionEntity job = jobPositionService.getEntity(application.getJobId());
     ResumeEntity resume = resumeRepository.findById(application.getResumeId())
         .orElseThrow(() -> new BusinessException(ErrorCode.RESUME_NOT_FOUND));
-    ScreeningResult result = screeningService.screen(job, resume.getResumeText(), application.getCandidateLevel());
+    ScreeningResult result = application.getCandidateTrack() == null
+        ? screeningService.screen(job, resume.getResumeText(), application.getCandidateLevel())
+        : screeningService.screen(job, resume.getResumeText(), application.getCandidateLevel(),
+            application.getCandidateTrack());
     int threshold = job.getScreeningThreshold() != null
         ? job.getScreeningThreshold() : properties.getDefaultScreeningThreshold();
 

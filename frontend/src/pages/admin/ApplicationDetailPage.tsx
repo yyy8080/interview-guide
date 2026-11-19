@@ -30,6 +30,7 @@ import {
   AI_EXPERIENCE_LABELS,
   APPLICATION_STATUS_BADGES,
   APPLICATION_STATUS_LABELS,
+  CANDIDATE_TRACK_LABELS,
   EMAIL_LOG_STATUS_LABELS,
   PROCTOR_EVENT_LABELS,
   PROCTOR_RISK_BADGES,
@@ -353,6 +354,14 @@ export default function ApplicationDetailPage() {
               >
                 {APPLICATION_STATUS_LABELS[detail.status]}
               </span>
+              {detail.candidateTrack && (
+                <span
+                  data-testid="candidate-track-badge"
+                  className="inline-flex rounded-full bg-cyan-50 px-3 py-0.5 text-xs font-medium text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300"
+                >
+                  技术方向：{CANDIDATE_TRACK_LABELS[detail.candidateTrack]}
+                </span>
+              )}
               {detail.candidateLevel && (
                 <span
                   data-testid="candidate-level-badge"

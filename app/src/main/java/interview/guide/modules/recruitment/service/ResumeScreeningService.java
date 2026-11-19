@@ -46,19 +46,25 @@ public class ResumeScreeningService {
   }
 
   public ScreeningResult screen(JobPositionEntity job, String resumeText) {
-    return screen(job, resumeText, null);
+    return screen(job, resumeText, null, null);
+  }
+
+  public ScreeningResult screen(JobPositionEntity job, String resumeText, String candidateLevel) {
+    return screen(job, resumeText, candidateLevel, null);
   }
 
   /**
    * 执行初筛；LLM 调用失败抛出 BusinessException(SCREENING_FAILED)，由任务消费者重试 / 兜底
    */
-  public ScreeningResult screen(JobPositionEntity job, String resumeText, String candidateLevel) {
+  public ScreeningResult screen(JobPositionEntity job, String resumeText, String candidateLevel, String candidateTrack) {
     String effectiveLevel = interview.guide.modules.recruitment.model.CandidateLevels.resolve(
         candidateLevel, job.getDifficulty());
     String systemPrompt = systemPromptTemplate.render() + "\n\n" + outputConverter.getFormat();
     String userPrompt = userPromptTemplate.render(Map.of(
         "jobTitle", job.getTitle(),
         "candidateLevel", interview.guide.modules.recruitment.model.CandidateLevels.label(effectiveLevel),
+        "candidateTrack", interview.guide.modules.recruitment.model.CandidateTracks.labelOrDefault(candidateTrack),
+        "trackGuidance", interview.guide.modules.recruitment.model.CandidateTracks.screeningGuidance(candidateTrack),
         "jdText", truncate(job.getJdText(), MAX_JD_CHARS),
         "resumeText", truncate(resumeText, MAX_RESUME_CHARS)));
     ChatClient chatClient = llmProviderRegistry.getChatClientOrDefault(job.getLlmProvider());

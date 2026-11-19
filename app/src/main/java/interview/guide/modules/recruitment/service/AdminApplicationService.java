@@ -140,6 +140,7 @@ public class AdminApplicationService {
           app.getCandidateName(), candidate != null ? candidate.getEmail() : null, app.getCandidatePhone(),
           interview.guide.modules.recruitment.model.CandidateLevels.resolve(
               app.getCandidateLevel(), job != null ? job.getDifficulty() : null),
+          interview.guide.modules.recruitment.model.CandidateTracks.safeNormalize(app.getCandidateTrack()),
           app.getStatus(), app.getInterviewMode(), app.getScreeningScore(), app.getWrittenScore(), app.getAiScore(),
           app.getAiDecision(), app.getProctorRiskScore(), app.getProctorRiskLevel(),
           app.getSubmittedAt(), app.getUpdatedAt());
@@ -200,6 +201,7 @@ public class AdminApplicationService {
         app.getCandidatePhone(),
         interview.guide.modules.recruitment.model.CandidateLevels.resolve(
             app.getCandidateLevel(), job != null ? job.getDifficulty() : null),
+        interview.guide.modules.recruitment.model.CandidateTracks.safeNormalize(app.getCandidateTrack()),
         app.getAiExperience(),
         app.getSpecialties(),
         app.getJobId(), job != null ? job.getTitle() : "（岗位已删除）",

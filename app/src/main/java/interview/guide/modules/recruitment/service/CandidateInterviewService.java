@@ -151,6 +151,8 @@ public class CandidateInterviewService {
     String effectiveLevel = interview.guide.modules.recruitment.model.CandidateLevels.resolve(
         requestedLevel != null ? requestedLevel : application.getCandidateLevel(),
         job.getDifficulty());
+    String effectiveTrack = interview.guide.modules.recruitment.model.CandidateTracks
+        .safeNormalize(application.getCandidateTrack());
     String effectiveAiExp = normalizedAiExp != null ? normalizedAiExp : application.getAiExperience();
     String effectiveSpecialties = sanitizedSpecialties != null ? sanitizedSpecialties : application.getSpecialties();
 
@@ -158,10 +160,10 @@ public class CandidateInterviewService {
     Long voiceSessionId = null;
     int plannedVoice = 0;
     if (mode == InterviewMode.TEXT) {
-      textSessionId = createTextSession(application, job, effectiveLevel, effectiveAiExp, effectiveSpecialties);
+      textSessionId = createTextSession(application, job, effectiveTrack, effectiveLevel, effectiveAiExp, effectiveSpecialties);
     } else {
       plannedVoice = plannedVoiceMinutes(job);
-      voiceSessionId = createVoiceSession(application, job, plannedVoice, effectiveLevel, effectiveAiExp, effectiveSpecialties);
+      voiceSessionId = createVoiceSession(application, job, plannedVoice, effectiveTrack, effectiveLevel, effectiveAiExp, effectiveSpecialties);
     }
     // 计时从 AI 生成题目 / 会话完成后开始，候选人等待 AI 生成的时间不计入作答时长
     LocalDateTime now = LocalDateTime.now();
@@ -176,6 +178,9 @@ public class CandidateInterviewService {
 
     String finalTextSessionId = textSessionId;
     Long finalVoiceSessionId = voiceSessionId;
+    String trackRemark = effectiveTrack != null
+        ? "方向：" + interview.guide.modules.recruitment.model.CandidateTracks.label(effectiveTrack) + "，"
+        : "";
     transactionalExecutor.run(() -> {
       ApplicationEntity locked = applicationRepository.findByIdForUpdate(applicationId)
           .orElseThrow(() -> new BusinessException(ErrorCode.APPLICATION_NOT_FOUND));
@@ -193,10 +198,11 @@ public class CandidateInterviewService {
       locked.setInterviewDeadlineAt(deadline);
       stateMachine.transit(locked, ApplicationStatus.INTERVIEWING, OperatorType.CANDIDATE, candidateId,
           "候选人开始" + (mode == InterviewMode.TEXT ? "文字" : "语音")
-              + "面试（定位：" + interview.guide.modules.recruitment.model.CandidateLevels.label(effectiveLevel) + "）");
+              + "面试（" + trackRemark
+              + "定位：" + interview.guide.modules.recruitment.model.CandidateLevels.label(effectiveLevel) + "）");
     });
-    log.info("候选人开始在线面试: applicationId={}, mode={}, level={}, aiExp={}",
-        applicationId, mode, effectiveLevel, effectiveAiExp);
+    log.info("候选人开始在线面试: applicationId={}, mode={}, track={}, level={}, aiExp={}",
+        applicationId, mode, effectiveTrack, effectiveLevel, effectiveAiExp);
     return null;
   }
 
@@ -219,8 +225,8 @@ public class CandidateInterviewService {
     }
   }
 
-  private String createTextSession(ApplicationEntity application, JobPositionEntity job, String effectiveLevel,
-                                   String aiExperience, String specialties) {
+  private String createTextSession(ApplicationEntity application, JobPositionEntity job, String effectiveTrack,
+                                   String effectiveLevel, String aiExperience, String specialties) {
     int questionCount = clamp(job.getQuestionCount() != null ? job.getQuestionCount() : DEFAULT_QUESTION_COUNT,
         3, 20);
     InterviewSessionDTO session;
@@ -242,28 +248,47 @@ public class CandidateInterviewService {
     } else {
       ResumeEntity resume = resumeRepository.findById(application.getResumeId()).orElse(null);
       String baseResumeText = resume != null ? resume.getResumeText() : null;
-      String enrichedResumeText = appendCandidateSupplement(baseResumeText, aiExperience, specialties);
-      boolean custom = InterviewSkillService.CUSTOM_SKILL_ID.equals(job.getSkillId());
+      String enrichedResumeText = appendCandidateContext(baseResumeText, effectiveTrack, aiExperience, specialties);
+      String effectiveSkillId = interview.guide.modules.recruitment.model.CandidateTracks
+          .resolveEffectiveSkillId(job.getSkillId(), effectiveTrack);
+      boolean custom = InterviewSkillService.CUSTOM_SKILL_ID.equals(effectiveSkillId);
+      java.util.List<InterviewSkillService.CategoryDTO> customCategories = null;
+      if (custom) {
+        customCategories = interview.guide.modules.recruitment.model.CandidateTracks
+            .filterCategoriesForTrack(jobPositionService.readCategories(job), effectiveTrack);
+        if (effectiveTrack != null && (customCategories == null || customCategories.isEmpty())) {
+          effectiveSkillId = interview.guide.modules.recruitment.model.CandidateTracks.FRONTEND.equals(effectiveTrack)
+              ? "frontend" : "java-backend";
+          custom = false;
+          customCategories = null;
+        }
+      }
+      String effectiveJdText = (custom || effectiveTrack != null)
+          ? appendTrackToJd(job.getJdText(), effectiveTrack)
+          : null;
       session = interviewSessionService.createSession(new CreateInterviewRequest(
           enrichedResumeText,
           questionCount,
           resume != null ? resume.getId() : null,
           Boolean.TRUE,
           job.getLlmProvider(),
-          job.getSkillId(),
+          effectiveSkillId,
           effectiveLevel,
-          custom ? jobPositionService.readCategories(job) : null,
-          custom ? job.getJdText() : null,
+          customCategories,
+          effectiveJdText,
           "application-" + application.getId()));
     }
     return session.sessionId();
   }
 
   private Long createVoiceSession(ApplicationEntity application, JobPositionEntity job, int plannedMinutes,
-                                  String effectiveLevel, String aiExperience, String specialties) {
-    String enrichedJd = appendCandidateSupplement(job.getJdText(), aiExperience, specialties);
+                                  String effectiveTrack, String effectiveLevel, String aiExperience,
+                                  String specialties) {
+    String effectiveSkillId = interview.guide.modules.recruitment.model.CandidateTracks
+        .resolveEffectiveSkillId(job.getSkillId(), effectiveTrack);
+    String enrichedJd = appendCandidateContext(job.getJdText(), effectiveTrack, aiExperience, specialties);
     SessionResponseDTO response = voiceInterviewService.createSession(CreateSessionRequest.builder()
-        .skillId(job.getSkillId())
+        .skillId(effectiveSkillId)
         .difficulty(effectiveLevel)
         .customJdText(enrichedJd)
         .resumeId(application.getResumeId())
@@ -275,6 +300,23 @@ public class CandidateInterviewService {
         .llmProvider(job.getLlmProvider())
         .build());
     return response.getSessionId();
+  }
+
+  private static String appendTrackToJd(String baseJd, String effectiveTrack) {
+    String trackGuide = interview.guide.modules.recruitment.model.CandidateTracks.interviewGuidance(effectiveTrack);
+    if (trackGuide.isBlank()) {
+      return baseJd;
+    }
+    if (baseJd == null || baseJd.isBlank()) {
+      return trackGuide;
+    }
+    return baseJd + "\n\n" + trackGuide;
+  }
+
+  private static String appendCandidateContext(String baseText, String effectiveTrack,
+                                               String aiExperience, String specialties) {
+    String result = appendTrackToJd(baseText, effectiveTrack);
+    return appendCandidateSupplement(result, aiExperience, specialties);
   }
 
   private static String appendCandidateSupplement(String baseText, String aiExperience, String specialties) {
@@ -303,6 +345,8 @@ public class CandidateInterviewService {
     JobPositionEntity job = jobPositionService.getEntity(application.getJobId());
     String effectiveLevel = interview.guide.modules.recruitment.model.CandidateLevels.resolve(
         application.getCandidateLevel(), job.getDifficulty());
+    String effectiveTrack = interview.guide.modules.recruitment.model.CandidateTracks
+        .safeNormalize(application.getCandidateTrack());
     boolean interviewing = application.getStatus() == ApplicationStatus.INTERVIEWING;
     Long remaining = null;
     if (interviewing && application.getInterviewDeadlineAt() != null) {
@@ -335,6 +379,7 @@ public class CandidateInterviewService {
         application.getId(),
         job.getTitle(),
         effectiveLevel,
+        effectiveTrack,
         application.getAiExperience(),
         application.getSpecialties(),
         application.getInterviewMode(),

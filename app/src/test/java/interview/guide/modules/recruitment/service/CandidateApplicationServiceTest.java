@@ -398,4 +398,42 @@ class CandidateApplicationServiceTest {
         .isEqualTo(ErrorCode.CANDIDATE_NOT_INVITED.getCode());
     verify(resumeUploadService, never()).uploadForApplication(any());
   }
+
+  @Test
+  @DisplayName("投递与重提简历支持选择偏向前端/偏向后端并落库，非法方向直接拒绝")
+  void applyPersistsCandidateTrackAndResubmitUpdatesIt() {
+    MockMultipartFile invalidFile = new MockMultipartFile("file", "cv.pdf", "application/pdf", "pdf".getBytes());
+    assertThatThrownBy(() -> service.apply(5L, 99L, "张三", "13800138000", true, invalidFile, "mid", "devops"))
+        .isInstanceOf(BusinessException.class)
+        .extracting(ex -> ((BusinessException) ex).getCode())
+        .isEqualTo(ErrorCode.BAD_REQUEST.getCode());
+    verify(resumeUploadService, never()).uploadForApplication(invalidFile);
+
+    JobPositionEntity job = openJob(true, InterviewMode.BOTH);
+    when(jobPositionRepository.findById(5L)).thenReturn(Optional.of(job));
+    when(candidateRepository.findById(99L)).thenReturn(Optional.of(candidate(99L)));
+    when(applicationRepository.existsByJobIdAndCandidateId(5L, 99L)).thenReturn(false);
+
+    ResumeEntity resume = new ResumeEntity();
+    resume.setId(320L);
+    resume.setStorageKey("resumes/320.pdf");
+    MockMultipartFile file = new MockMultipartFile("file", "cv-fe.pdf", "application/pdf", "pdf".getBytes());
+    when(resumeUploadService.uploadForApplication(file)).thenReturn(resume);
+    when(transactionalExecutor.call(any())).thenAnswer(inv -> ((Supplier<?>) inv.getArgument(0)).get());
+    when(applicationRepository.saveAndFlush(any(ApplicationEntity.class))).thenAnswer(inv -> {
+      ApplicationEntity app = inv.getArgument(0);
+      app.setId(1020L);
+      return app;
+    });
+    doAnswer(inv -> {
+      ApplicationEntity app = inv.getArgument(0);
+      app.setStatus(inv.getArgument(1));
+      return null;
+    }).when(stateMachine).transit(any(), any(), any(), any(), any());
+
+    CandidateApplicationDTO applied = service.apply(
+        5L, 99L, "李前端", "13800138000", true, file, "mid", "frontend");
+    assertThat(applied.candidateTrack()).isEqualTo("FRONTEND");
+    verify(stateMachine).initialize(any(), eq("候选人投递简历（自选定位：中级，方向：偏向前端）"));
+  }
 }

@@ -55,6 +55,43 @@ export interface CandidateOfflineInterview {
   candidateNote: string | null;
 }
 
+export type CandidateTrack = 'FRONTEND' | 'BACKEND';
+
+export const CANDIDATE_TRACK_LABELS: Record<CandidateTrack, string> = {
+  FRONTEND: '偏向前端',
+  BACKEND: '偏向后端',
+};
+
+export const CANDIDATE_TRACK_OPTIONS: {
+  value: CandidateTrack;
+  label: string;
+  badge: string;
+  desc: string;
+}[] = [
+  {
+    value: 'FRONTEND',
+    label: '偏向前端',
+    badge: 'Web / 交互工程',
+    desc: '侧重 JavaScript/TypeScript、React/Vue、浏览器渲染与前端工程化',
+  },
+  {
+    value: 'BACKEND',
+    label: '偏向后端',
+    badge: '服务端 / 架构',
+    desc: '侧重 Java/Python/Go、Spring、MySQL/Redis、高并发与服务架构',
+  },
+];
+
+export function inferDefaultCandidateTrack(jobTitle?: string | null): CandidateTrack {
+  const normalized = (jobTitle ?? '').toLowerCase();
+  const mentionsFrontend = /前端|frontend|front-end|react|vue|web\s*ui/.test(normalized);
+  const mentionsBackend = /后端|backend|back-end|java|python|golang|服务端/.test(normalized);
+  if (mentionsFrontend && !mentionsBackend) {
+    return 'FRONTEND';
+  }
+  return 'BACKEND';
+}
+
 export type AiExperienceLevel = 'NONE' | 'TOOL_USER' | 'PROJECT_PRACTICE';
 
 export const AI_EXPERIENCE_LABELS: Record<AiExperienceLevel, string> = {
@@ -111,6 +148,7 @@ export interface CandidateApplication {
   department: string | null;
   location: string | null;
   candidateLevel?: JobDifficulty;
+  candidateTrack?: CandidateTrack | null;
   aiExperience?: AiExperienceLevel | null;
   specialties?: string | null;
   stage: CandidateStage;
@@ -161,6 +199,7 @@ export interface CandidateWrittenQuestion {
 export interface CandidateWrittenTest {
   applicationId: number;
   candidateLevel?: JobDifficulty;
+  candidateTrack?: CandidateTrack | null;
   aiExperience?: AiExperienceLevel | null;
   specialties?: string | null;
   status: WrittenTestStatus | null;
@@ -178,6 +217,7 @@ export interface CandidateInterviewState {
   applicationId: number;
   jobTitle: string;
   candidateLevel?: JobDifficulty;
+  candidateTrack?: CandidateTrack | null;
   aiExperience?: AiExperienceLevel | null;
   specialties?: string | null;
   mode: ConcreteInterviewMode | null;
@@ -346,6 +386,7 @@ export interface ApplicationListItem {
   candidateEmail: string | null;
   candidatePhone: string | null;
   candidateLevel?: JobDifficulty;
+  candidateTrack?: CandidateTrack | null;
   status: ApplicationStatus;
   interviewMode: InterviewMode | null;
   screeningScore: number | null;
@@ -477,6 +518,7 @@ export interface ApplicationDetail {
   candidateEmail: string | null;
   candidatePhone: string | null;
   candidateLevel?: JobDifficulty;
+  candidateTrack?: CandidateTrack | null;
   aiExperience?: AiExperienceLevel | null;
   specialties?: string | null;
   jobId: number;

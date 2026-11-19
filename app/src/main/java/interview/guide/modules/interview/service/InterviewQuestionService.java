@@ -137,7 +137,7 @@ public class InterviewQuestionService {
         String historicalSection = buildHistoricalSection(historicalQuestions);
         if (!hasResume) {
             return generateDirectionOnly(questionChatClient, skill, difficultyDesc, questionCount,
-                historicalSection);
+                historicalSection, jdText);
         }
 
         int resumeCount = Math.max(1, (int) Math.round(questionCount * RESUME_QUESTION_RATIO));
@@ -153,7 +153,7 @@ public class InterviewQuestionService {
 
         CompletableFuture<List<InterviewQuestionDTO>> directionFuture = CompletableFuture.supplyAsync(
             () -> generateDirectionOnly(questionChatClient, skill, difficultyDesc, directionCount,
-                historicalSection),
+                historicalSection, jdText),
             questionExecutor);
 
         List<InterviewQuestionDTO> resumeQuestions;
@@ -165,7 +165,7 @@ public class InterviewQuestionService {
                 ErrorLogSanitizer.forLogging(e.getCause()));
             directionFuture.cancel(true);
             return generateDirectionOnly(questionChatClient, skill, difficultyDesc, questionCount,
-                historicalSection);
+                historicalSection, jdText);
         }
 
         try {
@@ -229,7 +229,7 @@ public class InterviewQuestionService {
 
     private List<InterviewQuestionDTO> generateDirectionOnly(
             ChatClient questionClient, SkillDTO skill, String difficultyDesc,
-            int questionCount, String historicalSection) {
+            int questionCount, String historicalSection, String jdText) {
         Map<String, Integer> allocation = skillService.calculateAllocation(skill.categories(), questionCount);
         String allocationTable = skillService.buildAllocationDescription(allocation, skill.categories());
 
@@ -237,6 +237,8 @@ public class InterviewQuestionService {
             skill.id(), questionCount, allocation);
 
         try {
+            String effectiveJd = (skill.sourceJd() != null && !skill.sourceJd().isBlank())
+                ? skill.sourceJd() : jdText;
             Map<String, Object> variables = new HashMap<>();
             variables.put("questionCount", questionCount);
             variables.put("followUpCount", followUpCount);
@@ -246,7 +248,7 @@ public class InterviewQuestionService {
             variables.put("allocationTable", allocationTable);
             variables.put("historicalSection", historicalSection);
             variables.put("referenceSection", skillService.buildReferenceSection(skill, allocation));
-            variables.put("jdSection", buildJdSection(skill.sourceJd()));
+            variables.put("jdSection", buildJdSection(effectiveJd));
 
             String systemPrompt = skillSystemPromptTemplate.render()
                 + buildSkillPersonaSection(skill)

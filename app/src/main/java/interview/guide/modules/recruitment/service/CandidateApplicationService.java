@@ -16,6 +16,7 @@ import interview.guide.modules.recruitment.model.CandidateEntity;
 import interview.guide.modules.recruitment.model.CandidateLevels;
 import interview.guide.modules.recruitment.model.CandidateOfflineDTO;
 import interview.guide.modules.recruitment.model.CandidateScreeningFeedbackDTO;
+import interview.guide.modules.recruitment.model.CandidateTracks;
 import interview.guide.modules.recruitment.model.OperatorType;
 import interview.guide.modules.recruitment.model.RecruitmentInvitationEntity;
 import interview.guide.modules.recruitment.repository.ApplicationRepository;
@@ -114,18 +115,24 @@ public class CandidateApplicationService {
    */
   public CandidateApplicationDTO apply(Long jobId, Long candidateId, String name, String phone, boolean consent,
                                        MultipartFile file) {
-    return apply(jobId, candidateId, name, phone, consent, file, null);
+    return apply(jobId, candidateId, name, phone, consent, file, null, null);
+  }
+
+  public CandidateApplicationDTO apply(Long jobId, Long candidateId, String name, String phone, boolean consent,
+                                       MultipartFile file, String candidateLevel) {
+    return apply(jobId, candidateId, name, phone, consent, file, candidateLevel, null);
   }
 
   /**
    * 投递岗位：校验受邀邮箱与输入 → 上传解析简历（事务外）→ 事务内创建投递单并进入初筛 / 面试邀请
    */
   public CandidateApplicationDTO apply(Long jobId, Long candidateId, String name, String phone, boolean consent,
-                                       MultipartFile file, String candidateLevel) {
+                                       MultipartFile file, String candidateLevel, String candidateTrack) {
     if (!consent) {
       throw new BusinessException(ErrorCode.CONSENT_REQUIRED);
     }
     String normalizedLevel = CandidateLevels.normalizeOrNull(candidateLevel);
+    String normalizedTrack = CandidateTracks.normalizeOrNull(candidateTrack);
     String candidateName = trimToNull(name);
     if (candidateName == null || candidateName.length() > 64) {
       throw new BusinessException(ErrorCode.BAD_REQUEST, "请填写姓名（不超过 64 字）");
@@ -155,7 +162,7 @@ public class CandidateApplicationService {
     ApplicationEntity saved;
     try {
       saved = transactionalExecutor.call(() -> createApplication(job, candidateId, candidateName, candidatePhone,
-          resolvedLevel, resume.getId(), skipScreening));
+          resolvedLevel, normalizedTrack, resume.getId(), skipScreening));
     } catch (DataIntegrityViolationException e) {
       discardResume(resume);
       throw new BusinessException(ErrorCode.APPLICATION_DUPLICATE);
@@ -163,8 +170,8 @@ public class CandidateApplicationService {
       discardResume(resume);
       throw e;
     }
-    log.info("候选人投递成功: applicationId={}, jobId={}, candidateId={}, level={}, status={}",
-        saved.getId(), jobId, candidateId, resolvedLevel, saved.getStatus());
+    log.info("候选人投递成功: applicationId={}, jobId={}, candidateId={}, level={}, track={}, status={}",
+        saved.getId(), jobId, candidateId, resolvedLevel, normalizedTrack, saved.getStatus());
     return toDTO(saved, job, null);
   }
 
@@ -179,7 +186,8 @@ public class CandidateApplicationService {
   }
 
   private ApplicationEntity createApplication(JobPositionEntity job, Long candidateId, String name, String phone,
-                                              String candidateLevel, Long resumeId, boolean skipScreening) {
+                                              String candidateLevel, String candidateTrack, Long resumeId,
+                                              boolean skipScreening) {
     LocalDateTime now = LocalDateTime.now();
     ApplicationEntity application = new ApplicationEntity();
     application.setJobId(job.getId());
@@ -188,11 +196,15 @@ public class CandidateApplicationService {
     application.setCandidateName(name);
     application.setCandidatePhone(phone);
     application.setCandidateLevel(candidateLevel);
+    application.setCandidateTrack(candidateTrack);
     application.setStatus(ApplicationStatus.SUBMITTED);
     application.setConsentAt(now);
     application.setSubmittedAt(now);
     ApplicationEntity saved = applicationRepository.saveAndFlush(application);
-    stateMachine.initialize(saved, "候选人投递简历（自选定位：" + CandidateLevels.label(candidateLevel) + "）");
+    String trackLabel = CandidateTracks.label(candidateTrack);
+    String initRemark = "候选人投递简历（自选定位：" + CandidateLevels.label(candidateLevel)
+        + (trackLabel != null ? "，方向：" + trackLabel : "") + "）";
+    stateMachine.initialize(saved, initRemark);
 
     // 同步候选人资料与定向邀请关联
     candidateRepository.findById(candidateId).ifPresent(candidate -> updateProfile(candidate, name, phone));
@@ -243,7 +255,17 @@ public class CandidateApplicationService {
    */
   public CandidateApplicationDTO resubmitResume(Long candidateId, Long applicationId, MultipartFile file,
                                                 String candidateLevel) {
+    return resubmitResume(candidateId, applicationId, file, candidateLevel, null);
+  }
+
+  /**
+   * 简历初筛未通过后修改并重新提交简历（默认限 1 次）：
+   * 校验当前处于 SCREEN_REJECTED 且未超过修改次数 → 事务外上传解析新简历 → 行锁事务内替换简历并重新流转至 SCREENING
+   */
+  public CandidateApplicationDTO resubmitResume(Long candidateId, Long applicationId, MultipartFile file,
+                                                String candidateLevel, String candidateTrack) {
     String normalizedLevel = CandidateLevels.normalizeOrNull(candidateLevel);
+    String normalizedTrack = CandidateTracks.normalizeOrNull(candidateTrack);
     ApplicationEntity current = requireOwned(candidateId, applicationId);
     if (current.getStatus() != ApplicationStatus.SCREEN_REJECTED) {
       throw new BusinessException(ErrorCode.APPLICATION_STATUS_INVALID, "仅简历初筛未通过的投递支持修改重提简历");
@@ -267,19 +289,19 @@ public class CandidateApplicationService {
     ApplicationEntity updated;
     try {
       updated = transactionalExecutor.call(() -> doResubmit(candidateId, applicationId, job, newResume.getId(),
-          normalizedLevel, maxRevisions, skipScreening));
+          normalizedLevel, normalizedTrack, maxRevisions, skipScreening));
     } catch (RuntimeException e) {
       discardResume(newResume);
       throw e;
     }
-    log.info("候选人修改并重新提交简历: applicationId={}, candidateId={}, revisionCount={}, status={}",
-        updated.getId(), candidateId, updated.getResumeRevisionCount(), updated.getStatus());
+    log.info("候选人修改并重新提交简历: applicationId={}, candidateId={}, revisionCount={}, track={}, status={}",
+        updated.getId(), candidateId, updated.getResumeRevisionCount(), updated.getCandidateTrack(), updated.getStatus());
     return toDTO(updated, job, null);
   }
 
   private ApplicationEntity doResubmit(Long candidateId, Long applicationId, JobPositionEntity job,
-                                       Long newResumeId, String normalizedLevel, int maxRevisions,
-                                       boolean skipScreening) {
+                                       Long newResumeId, String normalizedLevel, String normalizedTrack,
+                                       int maxRevisions, boolean skipScreening) {
     ApplicationEntity locked = applicationRepository.findByIdForUpdate(applicationId)
         .filter(app -> app.getCandidateId().equals(candidateId))
         .orElseThrow(() -> new BusinessException(ErrorCode.APPLICATION_NOT_FOUND));
@@ -293,9 +315,12 @@ public class CandidateApplicationService {
     String resolvedLevel = CandidateLevels.resolve(
         normalizedLevel != null ? normalizedLevel : locked.getCandidateLevel(),
         job.getDifficulty());
+    String effectiveTrack = normalizedTrack != null
+        ? normalizedTrack : CandidateTracks.safeNormalize(locked.getCandidateTrack());
     int nextCount = locked.getResumeRevisionCount() + 1;
     locked.setResumeId(newResumeId);
     locked.setCandidateLevel(resolvedLevel);
+    locked.setCandidateTrack(effectiveTrack);
     locked.setResumeRevisionCount(nextCount);
     locked.setScreeningScore(null);
     locked.setScreeningResultJson(null);
@@ -304,9 +329,11 @@ public class CandidateApplicationService {
 
     if (job.isScreeningEnabled() && !skipScreening) {
       locked.setTaskUpdatedAt(LocalDateTime.now());
+      String trackLabel = CandidateTracks.label(effectiveTrack);
       stateMachine.transit(locked, ApplicationStatus.SCREENING, OperatorType.CANDIDATE, candidateId,
           "候选人修改并重新提交简历（第 " + nextCount + "/" + maxRevisions
-              + " 次修改，定位：" + CandidateLevels.label(resolvedLevel) + "），重新进入 AI 简历初筛");
+              + " 次修改，定位：" + CandidateLevels.label(resolvedLevel)
+              + (trackLabel != null ? "，方向：" + trackLabel : "") + "），重新进入 AI 简历初筛");
     } else {
       workflowService.invite(locked, OperatorType.CANDIDATE, candidateId,
           "候选人重新提交简历（第 " + nextCount + " 次修改），直接进入在线面试");
@@ -404,6 +431,7 @@ public class CandidateApplicationService {
         app.getStatus().toCandidateStage(),
         CandidateLevels.resolve(
             app.getCandidateLevel(), job != null ? job.getDifficulty() : null),
+        CandidateTracks.safeNormalize(app.getCandidateTrack()),
         app.getAiExperience(),
         app.getSpecialties(),
         availableModes(job),

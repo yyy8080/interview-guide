@@ -109,12 +109,20 @@ public class CandidateWrittenTestService {
     String effectiveLevel = CandidateLevels.resolve(
         requestedLevel != null ? requestedLevel : application.getCandidateLevel(),
         job.getDifficulty());
+    String effectiveTrack = interview.guide.modules.recruitment.model.CandidateTracks
+        .safeNormalize(application.getCandidateTrack());
     String effectiveAiExp = normalizedAiExp != null ? normalizedAiExp : application.getAiExperience();
     String effectiveSpecialties = sanitizedSpecialties != null ? sanitizedSpecialties : application.getSpecialties();
-    List<WrittenQuestion> questions = (effectiveAiExp == null && effectiveSpecialties == null)
-        ? generator.generate(job, jobPositionService.readCategories(job), effectiveLevel)
-        : generator.generate(job, jobPositionService.readCategories(job), effectiveLevel,
-            effectiveAiExp, effectiveSpecialties);
+    List<WrittenQuestion> questions;
+    if (effectiveTrack == null && effectiveAiExp == null && effectiveSpecialties == null) {
+      questions = generator.generate(job, jobPositionService.readCategories(job), effectiveLevel);
+    } else if (effectiveTrack == null) {
+      questions = generator.generate(job, jobPositionService.readCategories(job), effectiveLevel,
+          effectiveAiExp, effectiveSpecialties);
+    } else {
+      questions = generator.generate(job, jobPositionService.readCategories(job), effectiveLevel,
+          effectiveTrack, effectiveAiExp, effectiveSpecialties);
+    }
 
     transactionalExecutor.run(() -> {
       ApplicationEntity locked = applicationRepository.findByIdForUpdate(applicationId)
@@ -147,8 +155,8 @@ public class CandidateWrittenTestService {
         locked.setInviteExpiresAt(minInviteExpiry);
       }
     });
-    log.info("候选人开始笔试: applicationId={}, level={}, aiExp={}, questions={}",
-        applicationId, effectiveLevel, effectiveAiExp, questions.size());
+    log.info("候选人开始笔试: applicationId={}, track={}, level={}, aiExp={}, questions={}",
+        applicationId, effectiveTrack, effectiveLevel, effectiveAiExp, questions.size());
     return null;
   }
 
@@ -168,6 +176,8 @@ public class CandidateWrittenTestService {
     invitationService.assertCanAccessInterview(application);
     JobPositionEntity job = jobPositionService.getEntity(application.getJobId());
     String effectiveLevel = CandidateLevels.resolve(application.getCandidateLevel(), job.getDifficulty());
+    String effectiveTrack = interview.guide.modules.recruitment.model.CandidateTracks
+        .safeNormalize(application.getCandidateTrack());
     Optional<WrittenTestEntity> found = writtenTestRepository.findByApplicationId(applicationId);
     if (found.isPresent() && isOverdue(found.get())) {
       submitAndGrade(found.get(), job.getLlmProvider());
@@ -176,7 +186,7 @@ public class CandidateWrittenTestService {
     String watermark = job.isProctorWatermark() ? CandidateInterviewService.watermarkText(application) : null;
     if (found.isEmpty()) {
       int planned = job.getWrittenSingleCount() + job.getWrittenMultiCount() + job.getWrittenFillCount();
-      return new CandidateWrittenTestDTO(applicationId, effectiveLevel,
+      return new CandidateWrittenTestDTO(applicationId, effectiveLevel, effectiveTrack,
           application.getAiExperience(), application.getSpecialties(), null, planned, List.of(), Map.of(), null,
           null, null, watermark, job.isProctorAwayReminder());
     }
@@ -188,7 +198,7 @@ public class CandidateWrittenTestService {
     Long remaining = inProgress
         ? Math.max(0, Duration.between(LocalDateTime.now(), test.getDeadlineAt()).toSeconds())
         : null;
-    return new CandidateWrittenTestDTO(applicationId, effectiveLevel,
+    return new CandidateWrittenTestDTO(applicationId, effectiveLevel, effectiveTrack,
         application.getAiExperience(), application.getSpecialties(), test.getStatus(), test.getTotalCount(),
         questions, inProgress ? codec.readAnswers(test.getAnswersJson()) : Map.of(), test.getStartedAt(),
         test.getDeadlineAt(), remaining, watermark, job.isProctorAwayReminder());

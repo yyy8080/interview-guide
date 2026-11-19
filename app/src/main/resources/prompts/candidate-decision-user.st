@@ -1,6 +1,7 @@
 ## 岗位与候选人定位信息
 岗位名称：{jobTitle}
 岗位建议级别：{jobDifficulty}
+候选人选择方向：{candidateTrack}
 候选人自选定位（笔试与面试出题级别）：{candidateLevel}
 候选人答题前补充（AI 经验与个人特长）：
 {candidateSupplement}

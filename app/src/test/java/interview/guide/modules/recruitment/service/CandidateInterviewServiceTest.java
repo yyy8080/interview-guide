@@ -468,4 +468,70 @@ class CandidateInterviewServiceTest {
         .startsWith("A".repeat(100))
         .contains("超出 4000 字已截断");
   }
+
+  @Test
+  @DisplayName("开始面试无需重复选择方向，自动按投递时偏向前端切换前端题库并注入方向提示词")
+  void startsTextInterviewUsingApplicationTrackAutomatically() {
+    ApplicationEntity app = new ApplicationEntity();
+    app.setId(109L);
+    app.setCandidateId(10L);
+    app.setJobId(22L);
+    app.setResumeId(77L);
+    app.setCandidateName("林前端");
+    app.setCandidateLevel("mid");
+    app.setCandidateTrack("FRONTEND");
+    app.setStatus(ApplicationStatus.INTERVIEW_INVITED);
+    app.setInviteExpiresAt(LocalDateTime.now().plusDays(1));
+
+    JobPositionEntity job = new JobPositionEntity();
+    job.setId(22L);
+    job.setTitle("研发工程师");
+    job.setSkillId("java-backend");
+    job.setJdText("负责核心业务前后端研发");
+    job.setInterviewMode(InterviewMode.BOTH);
+    job.setQuestionCount(6);
+    job.setTimeLimitMinutes(30);
+    job.setWrittenTestEnabled(false);
+
+    interview.guide.modules.resume.model.ResumeEntity resume =
+        new interview.guide.modules.resume.model.ResumeEntity();
+    resume.setId(77L);
+    resume.setResumeText("熟悉 TypeScript、React 18 与前端性能优化");
+
+    when(applicationRepository.findByIdAndCandidateId(109L, 10L)).thenReturn(Optional.of(app));
+    when(applicationRepository.findByIdForUpdate(109L)).thenReturn(Optional.of(app));
+    when(jobPositionService.getEntity(22L)).thenReturn(job);
+    when(resumeRepository.findById(77L)).thenReturn(Optional.of(resume));
+    when(writtenTestRepository.findByApplicationId(109L)).thenReturn(Optional.empty());
+    when(redisService.executeWithLock(any(), anyLong(), anyLong(), any(), any()))
+        .thenAnswer(inv -> ((RedisService.LockedOperation<?>) inv.getArgument(4)).execute());
+    doAnswer(inv -> {
+      ((Runnable) inv.getArgument(0)).run();
+      return null;
+    }).when(transactionalExecutor).run(any());
+
+    InterviewSessionDTO textSession = new InterviewSessionDTO(
+        "sess-fe-109", resume.getResumeText(), 6, 0, List.of(),
+        InterviewSessionDTO.SessionStatus.IN_PROGRESS, 77L, "frontend");
+    when(interviewSessionService.createSession(any())).thenReturn(textSession);
+    when(interviewSessionService.getSession("sess-fe-109")).thenReturn(textSession);
+    when(interviewSessionService.getCurrentQuestion("sess-fe-109")).thenReturn(
+        InterviewQuestionDTO.create(0, "请介绍 React Fiber 调度的核心机制？", "FRONTEND", "React", null, false, null));
+    doAnswer(inv -> {
+      ApplicationEntity target = inv.getArgument(0);
+      target.setStatus(inv.getArgument(1));
+      target.setInterviewStartedAt(LocalDateTime.now());
+      return null;
+    }).when(stateMachine).transit(any(), any(), any(), any(), any());
+
+    CandidateInterviewDTO dto = service.start(10L, 109L, InterviewMode.TEXT);
+
+    assertThat(dto.candidateTrack()).isEqualTo("FRONTEND");
+    ArgumentCaptor<interview.guide.modules.interview.model.CreateInterviewRequest> reqCaptor =
+        ArgumentCaptor.forClass(interview.guide.modules.interview.model.CreateInterviewRequest.class);
+    verify(interviewSessionService).createSession(reqCaptor.capture());
+    assertThat(reqCaptor.getValue().skillId()).isEqualTo("frontend");
+    assertThat(reqCaptor.getValue().resumeText()).contains("【候选人投递技术方向偏好：偏向前端】");
+    assertThat(reqCaptor.getValue().jdText()).contains("【候选人投递技术方向偏好：偏向前端】");
+  }
 }
