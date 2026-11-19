@@ -1,5 +1,6 @@
 package interview.guide.modules.recruitment.model;
 
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotNull;
@@ -7,13 +8,13 @@ import jakarta.validation.constraints.Size;
 import java.util.List;
 
 /**
- * HR 后台发送面试邀请请求（支持单个或批量多个邮箱）
+ * HR 后台发送面试邀请请求（支持单个邮箱、批量邮箱文本或按候选人附带姓名的批量列表）
  */
 public record CreateInvitationsRequest(
     @NotNull(message = "请选择邀请岗位")
     Long jobId,
 
-    /** 邮箱列表（可与 emailsText 二选一或合并去重） */
+    /** 邮箱列表（可与 emailsText / recipients 合并去重） */
     List<String> emails,
 
     /** 原始邮箱文本（支持换行、逗号、分号或空格分隔多个邮箱） */
@@ -34,6 +35,29 @@ public record CreateInvitationsRequest(
 
     /** 给候选人的补充说明（选填，展示在邀请邮件中） */
     @Size(max = 500, message = "备注不超过 500 字")
-    String note
+    String note,
+
+    /** 按候选人明细批量邀请（如批量识别简历图片后携带每位候选人的独立姓名与邮箱） */
+    @Valid
+    List<RecipientItem> recipients
 ) {
+
+  public CreateInvitationsRequest(
+      Long jobId,
+      List<String> emails,
+      String emailsText,
+      String candidateName,
+      Integer expireDays,
+      Boolean skipScreening,
+      String note
+  ) {
+    this(jobId, emails, emailsText, candidateName, expireDays, skipScreening, note, null);
+  }
+
+  public record RecipientItem(
+      String email,
+      @Size(max = 64, message = "姓名不超过 64 字")
+      String candidateName
+  ) {
+  }
 }

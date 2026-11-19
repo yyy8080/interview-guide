@@ -754,6 +754,11 @@ export interface InvitationStats {
   expiredOrRevoked: number;
 }
 
+export interface InvitationRecipientInput {
+  email: string;
+  candidateName?: string;
+}
+
 export interface CreateInvitationsRequest {
   jobId: number;
   emails?: string[];
@@ -762,6 +767,7 @@ export interface CreateInvitationsRequest {
   expireDays?: number;
   skipScreening?: boolean;
   note?: string;
+  recipients?: InvitationRecipientInput[];
 }
 
 export interface BatchInvitationResult {
@@ -770,6 +776,23 @@ export interface BatchInvitationResult {
   mailEnabled: boolean;
   invitations: InvitationListItem[];
   failed: { email: string; message: string }[];
+}
+
+export interface ResumeImageExtractItem {
+  filename: string;
+  recognized: boolean;
+  candidateName: string | null;
+  email: string | null;
+  emailValid: boolean;
+  location: string | null;
+  phone: string | null;
+  error: string | null;
+}
+
+export interface BatchResumeImageExtractResult {
+  totalCount: number;
+  validEmailCount: number;
+  items: ResumeImageExtractItem[];
 }
 
 export interface CandidateJobInvitationStatus {

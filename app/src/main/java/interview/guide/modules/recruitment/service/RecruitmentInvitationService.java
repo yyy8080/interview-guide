@@ -107,7 +107,8 @@ public class RecruitmentInvitationService {
           job.getStatus() == JobStatus.DRAFT ? "该岗位仍为草稿状态，请先发布岗位后再发送面试邀请" : "该岗位已停止接收投递");
     }
 
-    List<String> rawTokens = extractRawEmails(request.emails(), request.emailsText());
+    Map<String, String> recipientNames = extractRecipientNames(request.recipients());
+    List<String> rawTokens = extractRawEmails(request.emails(), request.emailsText(), request.recipients());
     if (rawTokens.isEmpty()) {
       throw new BusinessException(ErrorCode.BAD_REQUEST, "请填写至少一个候选人邮箱");
     }
@@ -122,7 +123,7 @@ public class RecruitmentInvitationService {
       if (normalized.isEmpty()) {
         continue;
       }
-      if (normalized.length() > 255 || !EMAIL_PATTERN.matcher(normalized).matches()) {
+      if (!isValidEmail(normalized)) {
         invalidItems.add(new InvalidEmailItem(token.trim(), "邮箱格式不正确"));
       } else {
         validEmails.add(normalized);
@@ -140,7 +141,7 @@ public class RecruitmentInvitationService {
     LocalDateTime expiresAt = now.plusDays(expireDays);
     boolean skipScreening = Boolean.TRUE.equals(request.skipScreening());
     String note = trimToNull(request.note());
-    String singleName = validEmails.size() == 1 ? trimToNull(request.candidateName()) : null;
+    String singleName = validEmails.size() == 1 ? sanitizeCandidateName(request.candidateName()) : null;
 
     ResolvedMailConfig mailConfig = mailSettingsService.resolve();
     List<RecruitmentInvitationEntity> savedEntities = new ArrayList<>();
@@ -148,6 +149,7 @@ public class RecruitmentInvitationService {
     int resentCount = 0;
 
     for (String email : validEmails) {
+      String resolvedName = recipientNames.getOrDefault(email, singleName);
       Optional<RecruitmentInvitationEntity> existingOpt =
           invitationRepository.findByJobIdAndEmail(job.getId(), email);
       RecruitmentInvitationEntity entity;
@@ -160,8 +162,8 @@ public class RecruitmentInvitationService {
         entity.setExpiresAt(expiresAt);
         entity.setSkipScreening(skipScreening);
         entity.setNote(note);
-        if (singleName != null) {
-          entity.setCandidateName(singleName);
+        if (resolvedName != null) {
+          entity.setCandidateName(resolvedName);
         }
         entity.setSendCount(entity.getSendCount() + 1);
         resentCount++;
@@ -169,7 +171,7 @@ public class RecruitmentInvitationService {
         entity = new RecruitmentInvitationEntity();
         entity.setJobId(job.getId());
         entity.setEmail(email);
-        entity.setCandidateName(singleName);
+        entity.setCandidateName(resolvedName);
         entity.setInviteCode(UUID.randomUUID().toString().replace("-", ""));
         entity.setStatus(InvitationRecordStatus.ACTIVE);
         entity.setSkipScreening(skipScreening);
@@ -691,8 +693,32 @@ public class RecruitmentInvitationService {
     };
   }
 
+  public static boolean isValidEmail(String email) {
+    if (email == null) {
+      return false;
+    }
+    String normalized = email.trim().toLowerCase(Locale.ROOT);
+    return !normalized.isEmpty() && normalized.length() <= 255 && EMAIL_PATTERN.matcher(normalized).matches();
+  }
+
   static List<String> extractRawEmails(List<String> emails, String emailsText) {
+    return extractRawEmails(emails, emailsText, null);
+  }
+
+  static List<String> extractRawEmails(List<String> emails, String emailsText,
+                                       List<CreateInvitationsRequest.RecipientItem> recipients) {
     List<String> tokens = new ArrayList<>();
+    if (recipients != null) {
+      for (CreateInvitationsRequest.RecipientItem item : recipients) {
+        if (item != null && item.email() != null && !item.email().isBlank()) {
+          for (String part : SPLIT_PATTERN.split(item.email().trim())) {
+            if (!part.isBlank()) {
+              tokens.add(part);
+            }
+          }
+        }
+      }
+    }
     if (emails != null) {
       for (String item : emails) {
         if (item != null && !item.isBlank()) {
@@ -712,6 +738,34 @@ public class RecruitmentInvitationService {
       }
     }
     return tokens;
+  }
+
+  private static Map<String, String> extractRecipientNames(
+      List<CreateInvitationsRequest.RecipientItem> recipients) {
+    if (recipients == null || recipients.isEmpty()) {
+      return Map.of();
+    }
+    Map<String, String> names = new HashMap<>();
+    for (CreateInvitationsRequest.RecipientItem item : recipients) {
+      if (item == null || item.email() == null || item.email().isBlank()) {
+        continue;
+      }
+      String name = sanitizeCandidateName(item.candidateName());
+      if (name == null) {
+        continue;
+      }
+      String normalizedEmail = item.email().trim().toLowerCase(Locale.ROOT);
+      names.putIfAbsent(normalizedEmail, name);
+    }
+    return names;
+  }
+
+  private static String sanitizeCandidateName(String value) {
+    String trimmed = trimToNull(value);
+    if (trimmed == null) {
+      return null;
+    }
+    return trimmed.length() > 64 ? trimmed.substring(0, 64) : trimmed;
   }
 
   private static String describeInterviewMode(JobPositionEntity job) {

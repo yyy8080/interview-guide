@@ -281,6 +281,62 @@ class RecruitmentInvitationServiceTest {
     assertThat(participatedPage.items()).allMatch(InvitationListItemDTO::participated);
   }
 
+  @Test
+  @DisplayName("简历图片批量识别邀请支持携带每位候选人独立姓名，分别写入记录并生成个性化邮件称呼")
+  void batchSendWithRecipientsPreservesIndividualCandidateNamesAndGreetings() {
+    JobPositionEntity job = openJob(12L);
+    when(jobPositionRepository.findById(12L)).thenReturn(Optional.of(job));
+    when(jobPositionRepository.findAllById(List.of(12L))).thenReturn(List.of(job));
+    when(mailSettingsService.resolve()).thenReturn(mailConfig());
+    when(invitationRepository.findByJobIdAndEmail(eq(12L), any())).thenReturn(Optional.empty());
+    when(candidateRepository.findByEmail(any())).thenReturn(Optional.empty());
+
+    AtomicLong idSeq = new AtomicLong(200L);
+    when(invitationRepository.save(any(RecruitmentInvitationEntity.class))).thenAnswer(inv -> {
+      RecruitmentInvitationEntity e = inv.getArgument(0);
+      if (e.getId() == null) {
+        e.setId(idSeq.incrementAndGet());
+      }
+      return e;
+    });
+    when(mailOutboxService.enqueue(any(), any(), eq(EmailTemplateCode.CANDIDATE_INVITATION), any(), any()))
+        .thenReturn(Optional.of(801L));
+
+    EmailLogEntity sentLog = new EmailLogEntity();
+    sentLog.setId(801L);
+    sentLog.setStatus(EmailLogStatus.SENT);
+    when(emailLogRepository.findAllById(List.of(801L))).thenReturn(List.of(sentLog));
+    when(adminUserRepository.findAllById(List.of(1L))).thenReturn(List.of());
+
+    CreateInvitationsRequest req = new CreateInvitationsRequest(
+        12L,
+        null,
+        null,
+        null,
+        7,
+        true,
+        "期待与您交流",
+        List.of(
+            new CreateInvitationsRequest.RecipientItem("ZhangSan@Example.com", "张三"),
+            new CreateInvitationsRequest.RecipientItem("lisi@example.com", "李四")
+        )
+    );
+
+    BatchInvitationResultDTO res = service.sendInvitations(req, 1L);
+
+    assertThat(res.createdCount()).isEqualTo(2);
+    assertThat(res.invitations())
+        .extracting(InvitationListItemDTO::candidateName)
+        .containsExactly("张三", "李四");
+
+    @SuppressWarnings("unchecked")
+    ArgumentCaptor<Map<String, String>> varsCaptor = ArgumentCaptor.forClass(Map.class);
+    verify(mailOutboxService, times(2))
+        .enqueue(any(), any(), eq(EmailTemplateCode.CANDIDATE_INVITATION), varsCaptor.capture(), eq(null));
+    assertThat(varsCaptor.getAllValues().get(0).get("candidateGreeting")).isEqualTo("张三，您好");
+    assertThat(varsCaptor.getAllValues().get(1).get("candidateGreeting")).isEqualTo("李四，您好");
+  }
+
   private RecruitmentInvitationEntity invite(Long id, Long jobId, String email, InvitationRecordStatus status,
                                              LocalDateTime expiresAt, Long appId) {
     RecruitmentInvitationEntity inv = new RecruitmentInvitationEntity();

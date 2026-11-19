@@ -37,6 +37,18 @@ public class RecruitmentProperties {
   /** AI 判定 REJECT 的置信度达到该值时即使分数过线也判为不通过 */
   private double rejectConfidenceThreshold = 0.8;
 
+  /** 简历图片识别使用的 LLM Provider ID（留空时沿用系统默认 Provider） */
+  private String visionProvider = "";
+
+  /** 简历图片识别使用的多模态模型名（留空时沿用对应 Provider 默认模型，不兼容多模态时自动尝试 qwen-vl-plus） */
+  private String visionModel = "";
+
+  /** 单次批量上传识别简历图片的最大张数 */
+  private int maxResumeImagesPerBatch = 20;
+
+  /** 单张简历图片最大字节数（默认 10MB） */
+  private long maxResumeImageSizeBytes = 10L * 1024 * 1024;
+
   private Otp otp = new Otp();
 
   private Task task = new Task();

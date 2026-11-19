@@ -73,6 +73,9 @@ APP_RECRUITMENT_COMPANY_NAME=你的公司名称
 APP_RECRUITMENT_INVITE_ONLY=true
 APP_RECRUITMENT_INVITE_EXPIRE_DAYS=7
 APP_RECRUITMENT_OTP_LOG_CODE=false
+# 可选：指定后台批量上传简历图片识别专用的 Provider / 多模态模型（默认留空沿用 AI_MODEL=qwen3.5-flash；若主模型纯文本不支持识图会自动回退 dashscope qwen-vl-plus）
+# APP_RECRUITMENT_VISION_PROVIDER=dashscope
+# APP_RECRUITMENT_VISION_MODEL=qwen-vl-plus
 
 # 允许的前端 Origin（包含协议和域名，多个用英文逗号分隔；语音 WebSocket 握手会校验此项）
 CORS_ALLOWED_ORIGINS=https://careers.yourcompany.com
@@ -106,7 +109,7 @@ docker compose logs -f app
 
 1. **`/api/` 读取超时不少于 `300s`**：候选人开启在线笔试或 AI 面试时，大模型实时生成定制单选/多选/填空题与面试题可能需要 15–90 秒，默认 60 秒会导致 `504 Gateway Time-out`。
 2. **`/ws/` 开启 WebSocket Upgrade 并透传 `Host $http_host`**：覆盖候选人语音面试 `/ws/candidate/voice-interview/{sessionId}` 与模拟语音面试 `/ws/voice-interview/{sessionId}`。
-3. **`client_max_body_size 50M`**：支持简历与知识库文档上传。
+3. **`client_max_body_size 100M`**：支持简历、知识库文档及后台批量简历图片上传识别。
 
 ### 外部 HTTPS Nginx 配置示例（转发至 Compose `frontend` 容器 `127.0.0.1:80`）
 
@@ -233,9 +236,10 @@ pnpm --dir frontend run build
 - **AI 在线面试模式与简历真实性核验**：支持 `BOTH`（默认，候选人开考时自主选择文字或实时语音作答）、`TEXT`（仅文字）、`VOICE`（仅实时语音）；实时语音面试在开场与多轮互动中自动锚定候选人自身简历中的项目、负责模块与量化成果追问实现细节，并在语音评估与 AI 综合复审中交叉核验简历真实性（对夸大或无法自圆其说的经历自动降分并标记“简历真实性存疑”）。
 - **低打扰防作弊、前置诚信审查与实际粘贴内容文本展示**：候选人在首次投递简历、初筛未通过重提简历前均会收到醒目警示与二次确认弹窗（明确告知**请勿乱提交简历、仅有两次提交机会、简历不允许造假否则直接不通过**，AI 综合决策发现简历虚构/造假时直接判 `REJECT`）；在进入在线笔试与文字/语音面试开考前均弹出**答题时禁止搜题、后台会有提交审查**提示与二次确认；默认无摄像头、无强制全屏，静默采集切屏时长、复制题目、语音文本篡改以及**候选人在笔试填空、文字面试、语音作答框中实际粘贴的原始文本内容**——HR 在后台投递详情页直接审查每次粘贴的**实际文本内容、对应题号、发生环节与时间**（不再仅显示模糊的粘贴次数），辅助精准判定搜题或外部代答风险。
 
-### 4. 定向发送面试邀请邮件与参面状态追踪（`/admin/invitations`）
+### 4. 定向发送面试邀请邮件与批量上传简历图片识别邀请（`/admin/invitations`）
 系统默认开启**受邀邮箱准入制**（`APP_RECRUITMENT_INVITE_ONLY=true`）：
-- **直接填写邮箱投递邀请**：HR 或管理员在后台侧边栏「面试邀请」（或岗位列表 / 投递管理页右上角「邀请面试」快捷入口）选择开放岗位，直接填写单个或批量多个面试者邮箱（支持换行、逗号、分号分隔），系统将通过已配置的 SMTP / 企业微信邮件通道直接向候选人邮箱投递邀请邮件（模板编码 `CANDIDATE_INVITATION`，附带自动填入受邀邮箱的专属进入链接 `{portalBaseUrl}/careers/login?email=...&redirect=/careers/{jobId}` 与诚信须知），并可选开启「上传简历后免 AI 初筛直通面试」。
+- **批量上传简历图片自动识别邀请**：HR 或管理员在后台 `/admin/invitations` 点击右上角「**批量传图识别邀请**」（或在邀请弹窗中切换至「批量上传简历图片识别」标签页），支持多选拖拽、文件选择或直接 `Ctrl+V` 粘贴多张简历截图/照片（支持 `PNG / JPG / WEBP / GIF / BMP`，单批最多 20 张、单张 ≤ 10MB）；系统并发调用多模态视觉模型自动提取每张图片中的**候选人姓名、电子邮箱地址与所在城市/联系地址**（支持点击缩略图放大对照原图、在线编辑核对姓名或补填缺失邮箱），一键批量发送携带每位候选人真实姓名专属称呼（如 `张三，您好`）的面试邀请邮件。
+- **直接填写邮箱投递邀请**：也可直接填写单个或批量多个面试者邮箱（支持换行、逗号、分号分隔），系统将通过已配置的 SMTP / 企业微信邮件通道直接向候选人邮箱投递邀请邮件（模板编码 `CANDIDATE_INVITATION`，附带自动填入受邀邮箱的专属进入链接 `{portalBaseUrl}/careers/login?email=...&redirect=/careers/{jobId}` 与诚信须知），并可选开启「上传简历后免 AI 初筛直通面试」。
 - **实时查看是否参加面试**：后台 `/admin/invitations` 实时统计并展示每位受邀候选人的邮件送达状态与**是否参加面试进度**（`已参加 · 已完成面试` / `已参加 · 答题进行中` / `未参加 · 待开考` / `未参加 · 简历初筛中` / `未参加 · 尚未投递简历` / `未参加 · 初筛未通过` / `未参加 · 邀请已过期` / `已撤销邀请`），支持按参面状态一键筛选、重发邀请邮件、撤销邀请与直达投递审查详情。
 - **非受邀邮箱全链路拦截**：开启 `APP_RECRUITMENT_INVITE_ONLY=true`（默认开启）时，未收到有效邀请的邮箱无法获取登录验证码，亦无法向未受邀岗位投递/重提简历或进入笔试、文字面试与语音 WebSocket 会话（统一拦截提示：`当前邮箱未收到面试邀请，非受邀邮箱不允许投递简历与参加面试`）。若企业后续需临时开放公开自主投递，可将环境变量设为 `APP_RECRUITMENT_INVITE_ONLY=false`。
 
@@ -243,7 +247,7 @@ pnpm --dir frontend run build
 
 ## 六、日常更新升级与数据备份（零手动 SQL）
 
-本项目使用 **Flyway** 自动管理全部数据库迁移（位于 `app/src/main/resources/db/migration/`，当前已演进至 `V20261127__candidate_track.sql`，涵盖后台权限、投递闭环、双通道邮件、低打扰防作弊与实际粘贴文本 `interview_proctor_events.pasted_text`、在线笔试表、候选人前后端方向偏好 `applications.candidate_track`、自选定位与考前 AI 经验/特长 `applications.ai_experience` & `specialties`、简历修改重提次数以及定向邮箱面试邀请表 `recruitment_invitations`）。**升级版本时无需手动执行任何 SQL 脚本**，后端容器启动时会自动检测并按序执行增量迁移。
+本项目使用 **Flyway** 自动管理全部数据库迁移（位于 `app/src/main/resources/db/migration/`，当前已演进至 `V20261127__candidate_track.sql`，涵盖后台权限、投递闭环、双通道邮件、低打扰防作弊与实际粘贴文本 `interview_proctor_events.pasted_text`、在线笔试表、候选人前后端方向偏好 `applications.candidate_track`、自选定位与考前 AI 经验/特长 `applications.ai_experience` & `specialties`、简历修改重提次数以及定向邮箱面试邀请表 `recruitment_invitations`）。**本次批量简历图片识别邀请功能无新增数据库表结构变更，升级版本时无需手动执行任何 SQL 脚本**。
 
 ### 标准升级步骤
 
@@ -274,6 +278,7 @@ docker image prune -f
 | 现象 | 原因定位 | 解决方案 |
 | :--- | :--- | :--- |
 | 候选人登录或投递提示“当前邮箱未收到面试邀请，非受邀邮箱不允许投递简历与参加面试” | 系统默认启用受邀邮箱准入制（`APP_RECRUITMENT_INVITE_ONLY=true`），该邮箱未被邀请或邀请已过期/已撤销 | HR 在后台 `/admin/invitations` 向该候选人邮箱发送对应岗位的面试邀请（或对已过期记录点击「重发邮件」自动续期） |
+| 批量上传简历图片提示“AI 识别失败” | 当前默认 Provider 模型不支持图片输入，且未配置有效的百炼 `AI_BAILIAN_API_KEY` 回退 | 确认 `AI_BAILIAN_API_KEY` 有效（默认 `qwen3.5-flash` 或自动回退 `qwen-vl-plus` 均原生支持识图），或显式设置 `APP_RECRUITMENT_VISION_PROVIDER` 与 `APP_RECRUITMENT_VISION_MODEL` 指向多模态模型 |
 | 候选人收不到邀请邮件、验证码或通知邮件 | 邮件通道未启用、企业微信未加可信 IP 或授权码错误 | 进入 `/admin/mail` 查看「发件箱记录」列的详细报错；企业微信报错 `60020` 请将服务器公网出口 IP 加入应用「企业可信 IP」 |
 | 开启笔试或面试时报错 `504 Gateway Time-out` | 外层反向代理默认 60s 超时，AI 生成整套题目耗时较长 | 将外层 Nginx/SLB 对 `/api/` 的 `proxy_read_timeout` 与 `proxy_send_timeout` 调至 `300s` |
 | 语音面试提示“无法访问麦克风” | 浏览器安全策略限制非安全上下文调用麦克风 | 必须使用 `https://` 域名访问（仅本机调试允许 `http://localhost`） |

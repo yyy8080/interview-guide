@@ -62,8 +62,8 @@ spring:
   servlet:
     multipart:
       enabled: true
-      max-file-size: 50MB  # 支持知识库上传（简历限制在业务层检查）
-      max-request-size: 50MB
+      max-file-size: 50MB  # 支持知识库上传（简历与图片单文件大小在业务层检查）
+      max-request-size: 100MB # 支持后台批量上传多张简历图片识别
   
 
   # Redisson配置 (使用 spring.redis.redisson，参考官方文档)
@@ -276,6 +276,11 @@ app:
     default-voice-duration-minutes: ${APP_RECRUITMENT_DEFAULT_VOICE_DURATION:30}
     # AI 建议不通过且置信度达到该值时，即使分数过线也判为不通过
     reject-confidence-threshold: ${APP_RECRUITMENT_REJECT_CONFIDENCE:0.8}
+    # 后台批量上传简历图片识别联系信息使用的 Provider / 多模态模型（留空时沿用默认 Provider 模型，必要时自动回退 qwen-vl-plus）
+    vision-provider: ${APP_RECRUITMENT_VISION_PROVIDER:}
+    vision-model: ${APP_RECRUITMENT_VISION_MODEL:}
+    max-resume-images-per-batch: ${APP_RECRUITMENT_MAX_RESUME_IMAGES_PER_BATCH:20}
+    max-resume-image-size-bytes: ${APP_RECRUITMENT_MAX_RESUME_IMAGE_SIZE_BYTES:10485760}
     # 发件箱扫描间隔（毫秒）
     mail-dispatch-interval-ms: ${APP_RECRUITMENT_MAIL_DISPATCH_INTERVAL_MS:30000}
     otp:

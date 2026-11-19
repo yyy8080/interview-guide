@@ -2008,5 +2008,225 @@ test.describe('企业招聘全流程（候选人门户 + HR 后台审核与邮�
     await page.goto('/admin/applications/960');
     await expect(page.getByTestId('candidate-track-badge')).toContainText('技术方向：偏向前端');
   });
+
+  test('HR 后台批量上传多张简历图片自动识别姓名、邮箱与地址，支持手动补填核对后一键发送邮件邀请', async ({
+    page,
+  }) => {
+    await seedAdminAuth(page, 'HR');
+
+    const pngHeader = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+    let invitedRecipients: Array<{ email: string; candidateName?: string }> = [];
+    let capturedInviteBody: Record<string, unknown> | null = null;
+    let parseCallMultipartBody = '';
+
+    await page.route('**/api/admin/jobs', route =>
+      ok(route, [
+        {
+          id: 42,
+          title: '高级全栈研发工程师',
+          department: '核心平台部',
+          location: '上海',
+          employmentType: 'FULL_TIME',
+          headcount: 3,
+          salaryRange: '30K-50K',
+          jdText: '负责企业级平台研发。',
+          status: 'OPEN',
+          skillId: 'java-backend',
+          difficulty: 'senior',
+          interviewMode: 'BOTH',
+          questionCount: 5,
+          timeLimitMinutes: 30,
+          aiPassThreshold: 70,
+          screeningEnabled: true,
+          screeningThreshold: 60,
+          writtenTestEnabled: true,
+          writtenQuestionCount: 5,
+          writtenTimeLimitMinutes: 20,
+          writtenWeight: 40,
+          proctorAwayReminder: true,
+          deadline: null,
+          publishedAt: '2026-11-18T09:00:00',
+          createdAt: '2026-11-18T09:00:00',
+          updatedAt: '2026-11-18T09:00:00',
+        },
+      ]),
+    );
+
+    const buildInvitationRows = () =>
+      invitedRecipients.map((item, idx) => ({
+        id: 1201 + idx,
+        jobId: 42,
+        jobTitle: '高级全栈研发工程师',
+        email: item.email,
+        candidateName: item.candidateName ?? null,
+        status: 'ACTIVE',
+        skipScreening: true,
+        note: '欢迎投递全栈研发岗位',
+        invitedByName: 'HR 张经理',
+        invitedAt: '2026-11-19T10:30:00',
+        expiresAt: '2026-11-26T10:30:00',
+        revokedAt: null,
+        sendCount: 1,
+        emailStatus: 'SENT',
+        emailSentAt: '2026-11-19T10:30:02',
+        emailError: null,
+        participated: false,
+        participationStatus: 'NOT_APPLIED',
+        participationDetail: '未参加 · 尚未投递简历',
+        applicationId: null,
+        applicationStatus: null,
+        interviewMode: null,
+        screeningScore: null,
+        writtenScore: null,
+        aiScore: null,
+        submittedAt: null,
+        interviewStartedAt: null,
+        interviewCompletedAt: null,
+      }));
+
+    await page.route('**/api/admin/invitations/stats*', route => {
+      const rows = buildInvitationRows();
+      return ok(route, {
+        total: rows.length,
+        participated: 0,
+        pendingInterview: 0,
+        notApplied: rows.length,
+        screenRejected: 0,
+        expiredOrRevoked: 0,
+      });
+    });
+
+    await page.route('**/api/admin/invitations?*', route => {
+      const rows = buildInvitationRows();
+      return ok(route, {
+        items: rows,
+        total: rows.length,
+        page: 1,
+        size: 20,
+      });
+    });
+
+    await page.route('**/api/admin/invitations/parse-resume-images', async route => {
+      parseCallMultipartBody = route.request().postData() ?? '';
+      await ok(route, {
+        totalCount: 3,
+        validEmailCount: 2,
+        items: [
+          {
+            filename: 'zhangsan-resume.png',
+            recognized: true,
+            candidateName: '张三',
+            email: 'zhangsan@example.com',
+            emailValid: true,
+            location: '上海·浦东新区',
+            phone: '13800138000',
+            error: null,
+          },
+          {
+            filename: 'lisi-resume.jpg',
+            recognized: true,
+            candidateName: '李四',
+            email: 'lisi@tech.cn',
+            emailValid: true,
+            location: '杭州市滨江区',
+            phone: '13911112222',
+            error: null,
+          },
+          {
+            filename: 'wangwu-screenshot.png',
+            recognized: true,
+            candidateName: '王五',
+            email: null,
+            emailValid: false,
+            location: '深圳市南山区',
+            phone: null,
+            error: '图片中未识别到邮箱地址，可手动补填',
+          },
+        ],
+      });
+    });
+
+    await page.route('**/api/admin/invitations', async route => {
+      if (route.request().method() !== 'POST') {
+        return route.fallback();
+      }
+      const body = route.request().postDataJSON() as Record<string, unknown>;
+      capturedInviteBody = body;
+      invitedRecipients = (body.recipients as Array<{ email: string; candidateName?: string }>) ?? [];
+      const rows = buildInvitationRows();
+      await ok(route, {
+        createdCount: rows.length,
+        resentCount: 0,
+        mailEnabled: true,
+        invitations: rows,
+        failed: [],
+      });
+    });
+
+    // 1. 打开面试邀请管理页，点击「批量传图识别邀请」
+    await page.goto('/admin/invitations');
+    await expect(page.getByRole('heading', { name: '面试邀请管理' })).toBeVisible();
+    await page.getByTestId('open-image-invite-btn').click();
+    await expect(page.getByTestId('send-invite-modal')).toBeVisible();
+    await expect(page.getByTestId('invite-image-dropzone')).toBeVisible();
+
+    // 2. 一次性批量上传 3 张简历图片，验证自动调用后端多模态识别并回填姓名、邮箱与所在地
+    await page.getByTestId('invite-image-input').setInputFiles([
+      { name: 'zhangsan-resume.png', mimeType: 'image/png', buffer: pngHeader },
+      { name: 'lisi-resume.jpg', mimeType: 'image/jpeg', buffer: pngHeader },
+      { name: 'wangwu-screenshot.png', mimeType: 'image/png', buffer: pngHeader },
+    ]);
+
+    await expect(page.getByTestId('recognized-candidates-table')).toBeVisible();
+    expect(parseCallMultipartBody).toContain('zhangsan-resume.png');
+    expect(parseCallMultipartBody).toContain('lisi-resume.jpg');
+    expect(parseCallMultipartBody).toContain('wangwu-screenshot.png');
+
+    await expect(page.getByTestId('recognized-name-0')).toHaveValue('张三');
+    await expect(page.getByTestId('recognized-email-0')).toHaveValue('zhangsan@example.com');
+    await expect(page.getByTestId('recognized-location-0')).toContainText('上海·浦东新区');
+    await expect(page.getByTestId('recognized-check-0')).toBeChecked();
+
+    await expect(page.getByTestId('recognized-name-1')).toHaveValue('李四');
+    await expect(page.getByTestId('recognized-email-1')).toHaveValue('lisi@tech.cn');
+    await expect(page.getByTestId('recognized-location-1')).toContainText('杭州市滨江区');
+    await expect(page.getByTestId('recognized-check-1')).toBeChecked();
+
+    // 第 3 张截图未识别到邮箱：展示所在地与原因提示，初始不勾选，按钮显示向 2 位候选人发送
+    await expect(page.getByTestId('recognized-name-2')).toHaveValue('王五');
+    await expect(page.getByTestId('recognized-email-2')).toHaveValue('');
+    await expect(page.getByTestId('recognized-location-2')).toContainText('深圳市南山区');
+    await expect(page.getByTestId('recognized-check-2')).not.toBeChecked();
+    await expect(page.getByTestId('confirm-send-image-invite-btn')).toContainText('向已选 2 位候选人发送邀请');
+
+    // 3. HR 为王五手动补填邮箱，自动勾选第 3 行，随后勾选免初筛并批量发送邀请邮件
+    await page.getByTestId('recognized-email-2').fill('wangwu@example.org');
+    await expect(page.getByTestId('recognized-check-2')).toBeChecked();
+    await expect(page.getByTestId('confirm-send-image-invite-btn')).toContainText('向已选 3 位候选人发送邀请');
+
+    await page.getByTestId('invite-skip-screening').check();
+    await page.getByTestId('invite-note').fill('欢迎投递全栈研发岗位');
+    await page.getByTestId('confirm-send-image-invite-btn').click();
+
+    expect(capturedInviteBody).toMatchObject({
+      jobId: 42,
+      skipScreening: true,
+      note: '欢迎投递全栈研发岗位',
+      recipients: [
+        { email: 'zhangsan@example.com', candidateName: '张三' },
+        { email: 'lisi@tech.cn', candidateName: '李四' },
+        { email: 'wangwu@example.org', candidateName: '王五' },
+      ],
+    });
+
+    await expect(page.getByText('新增邀请 3 人')).toBeVisible();
+    await expect(page.getByTestId('invitation-row-1201')).toContainText('zhangsan@example.com');
+    await expect(page.getByTestId('invitation-row-1201')).toContainText('张三');
+    await expect(page.getByTestId('invitation-row-1202')).toContainText('lisi@tech.cn');
+    await expect(page.getByTestId('invitation-row-1202')).toContainText('李四');
+    await expect(page.getByTestId('invitation-row-1203')).toContainText('wangwu@example.org');
+    await expect(page.getByTestId('invitation-row-1203')).toContainText('王五');
+  });
 });
+
 

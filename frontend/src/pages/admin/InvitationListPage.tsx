@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import {
   AlertTriangle,
@@ -6,6 +6,7 @@ import {
   ChevronLeft,
   ChevronRight,
   ExternalLink,
+  ImagePlus,
   Loader2,
   Mail,
   RefreshCw,
@@ -20,6 +21,11 @@ import {
 import { invitationApi } from '../../api/invitation';
 import { jobApi } from '../../api/job';
 import { getErrorMessage } from '../../api/request';
+import BatchResumeImageInvitePanel, {
+  isDraftEmailValid,
+  normalizeDraftEmail,
+  type RecognizedCandidateDraft,
+} from '../../components/BatchResumeImageInvitePanel';
 import ConfirmDialog from '../../components/ConfirmDialog';
 import { ROUTES } from '../../constants/routes';
 import { getStoredUser } from '../../utils/authStorage';
@@ -32,10 +38,15 @@ import {
   type EmailLogStatus,
   type InvitationListItem,
   type InvitationParticipationFilter,
+  type InvitationRecipientInput,
   type InvitationStats,
 } from '../../types/recruitment';
 
 type FilterTabKey = 'ALL' | InvitationParticipationFilter;
+type InviteModalMode = 'manual' | 'image';
+
+const MAX_BATCH_IMAGES = 20;
+const UPLOAD_CHUNK_SIZE = 10;
 
 const FILTER_TABS: { key: FilterTabKey; label: string }[] = [
   { key: 'ALL', label: '全部邀请' },
@@ -62,7 +73,7 @@ export default function InvitationListPage() {
   const isAdmin = user?.role === 'ADMIN';
 
   const initialJobId = searchParams.get('jobId') ?? '';
-  const initialInviteOpen = searchParams.get('invite') === '1';
+  const initialInviteParam = searchParams.get('invite');
 
   const [jobs, setJobs] = useState<JobPosition[]>([]);
   const [items, setItems] = useState<InvitationListItem[]>([]);
@@ -81,6 +92,7 @@ export default function InvitationListPage() {
 
   // 发送邀请弹窗
   const [modalOpen, setModalOpen] = useState(false);
+  const [inviteMode, setInviteMode] = useState<InviteModalMode>('manual');
   const [inviteJobId, setInviteJobId] = useState<string>(initialJobId);
   const [emailsText, setEmailsText] = useState('');
   const [candidateName, setCandidateName] = useState('');
@@ -90,11 +102,25 @@ export default function InvitationListPage() {
   const [sending, setSending] = useState(false);
   const [modalError, setModalError] = useState<string | null>(null);
 
+  // 批量简历图片识别状态
+  const [recognizedItems, setRecognizedItems] = useState<RecognizedCandidateDraft[]>([]);
+  const [recognizing, setRecognizing] = useState(false);
+  const [recognizeProgress, setRecognizeProgress] = useState<string | null>(null);
+  const previewUrlsRef = useRef<Set<string>>(new Set());
+
   // 单行操作
   const [actingId, setActingId] = useState<number | null>(null);
   const [revokeTarget, setRevokeTarget] = useState<InvitationListItem | null>(null);
 
   const openJobs = useMemo(() => jobs.filter(j => j.status === 'OPEN'), [jobs]);
+
+  useEffect(() => {
+    const urls = previewUrlsRef.current;
+    return () => {
+      urls.forEach(u => URL.revokeObjectURL(u));
+      urls.clear();
+    };
+  }, []);
 
   useEffect(() => {
     jobApi
@@ -113,13 +139,14 @@ export default function InvitationListPage() {
   }, []);
 
   useEffect(() => {
-    if (initialInviteOpen && canWrite) {
+    if ((initialInviteParam === '1' || initialInviteParam === 'image') && canWrite) {
+      setInviteMode(initialInviteParam === 'image' ? 'image' : 'manual');
       setModalOpen(true);
       const next = new URLSearchParams(searchParams);
       next.delete('invite');
       setSearchParams(next, { replace: true });
     }
-  }, [initialInviteOpen, canWrite, searchParams, setSearchParams]);
+  }, [initialInviteParam, canWrite, searchParams, setSearchParams]);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -178,8 +205,146 @@ export default function InvitationListPage() {
     return Array.from(set);
   }, [emailsText]);
 
-  const openSendModal = () => {
+  const selectedValidRecipients = useMemo(() => {
+    const map = new Map<string, InvitationRecipientInput>();
+    for (const item of recognizedItems) {
+      if (!item.selected || !isDraftEmailValid(item.email)) continue;
+      const email = normalizeDraftEmail(item.email);
+      const name = item.candidateName.trim();
+      const existing = map.get(email);
+      if (!existing) {
+        map.set(email, { email, candidateName: name || undefined });
+      } else if (!existing.candidateName && name) {
+        existing.candidateName = name;
+      }
+    }
+    return Array.from(map.values());
+  }, [recognizedItems]);
+
+  const clearRecognizedItems = useCallback(() => {
+    setRecognizedItems(prev => {
+      prev.forEach(item => {
+        if (item.previewUrl) {
+          URL.revokeObjectURL(item.previewUrl);
+          previewUrlsRef.current.delete(item.previewUrl);
+        }
+      });
+      return [];
+    });
+  }, []);
+
+  const handleUploadResumeImages = useCallback(
+    async (rawFiles: File[]) => {
+      if (recognizing || sending || rawFiles.length === 0) return;
+      const remaining = Math.max(0, MAX_BATCH_IMAGES - recognizedItems.length);
+      if (remaining === 0) {
+        setModalError(`单批最多添加 ${MAX_BATCH_IMAGES} 张简历图片，请先发送或移除部分记录`);
+        return;
+      }
+      const files = rawFiles.slice(0, remaining);
+      setModalError(
+        rawFiles.length > remaining
+          ? `已截取前 ${remaining} 张图片（单批上限 ${MAX_BATCH_IMAGES} 张）`
+          : null,
+      );
+      setRecognizing(true);
+
+      try {
+        for (let offset = 0; offset < files.length; offset += UPLOAD_CHUNK_SIZE) {
+          const chunk = files.slice(offset, offset + UPLOAD_CHUNK_SIZE);
+          const endIdx = Math.min(files.length, offset + chunk.length);
+          setRecognizeProgress(
+            files.length > UPLOAD_CHUNK_SIZE
+              ? `AI 正在自动识别第 ${offset + 1}–${endIdx} / ${files.length} 张简历图片…`
+              : `AI 正在自动识别 ${files.length} 张简历图片中的姓名、邮箱与地址…`,
+          );
+
+          const res = await invitationApi.parseResumeImages(chunk);
+          const drafts: RecognizedCandidateDraft[] = res.items.map((extracted, i) => {
+            const sourceFile = chunk[i];
+            let previewUrl: string | null = null;
+            if (sourceFile && sourceFile.type.startsWith('image/')) {
+              previewUrl = URL.createObjectURL(sourceFile);
+              previewUrlsRef.current.add(previewUrl);
+            }
+            const emailStr = extracted.email ?? '';
+            const valid = isDraftEmailValid(emailStr);
+            return {
+              id: `${Date.now()}-${offset + i}-${Math.random().toString(36).slice(2, 8)}`,
+              filename: extracted.filename || sourceFile?.name || `简历图片-${offset + i + 1}`,
+              previewUrl,
+              selected: valid,
+              candidateName: extracted.candidateName ?? '',
+              email: emailStr,
+              location: extracted.location ?? '',
+              phone: extracted.phone ?? '',
+              recognized: extracted.recognized,
+              serverError: extracted.error,
+            };
+          });
+          setRecognizedItems(prev => [...prev, ...drafts]);
+        }
+      } catch (err) {
+        setModalError(getErrorMessage(err));
+      } finally {
+        setRecognizing(false);
+        setRecognizeProgress(null);
+      }
+    },
+    [recognizedItems.length, recognizing, sending],
+  );
+
+  // 支持在图片识别标签页直接 Ctrl+V / Cmd+V 粘贴剪贴板中的简历截图
+  useEffect(() => {
+    if (!modalOpen || inviteMode !== 'image') return;
+    const onPaste = (e: ClipboardEvent) => {
+      if (recognizing || sending) return;
+      const imageFiles = Array.from(e.clipboardData?.files ?? []).filter(f =>
+        f.type.startsWith('image/'),
+      );
+      if (imageFiles.length > 0) {
+        e.preventDefault();
+        void handleUploadResumeImages(imageFiles);
+      }
+    };
+    window.addEventListener('paste', onPaste);
+    return () => window.removeEventListener('paste', onPaste);
+  }, [modalOpen, inviteMode, recognizing, sending, handleUploadResumeImages]);
+
+  const handleUpdateRecognizedItem = useCallback(
+    (
+      id: string,
+      patch: Partial<Pick<RecognizedCandidateDraft, 'selected' | 'candidateName' | 'email' | 'location'>>,
+    ) => {
+      setRecognizedItems(prev =>
+        prev.map(item => (item.id === id ? { ...item, ...patch } : item)),
+      );
+    },
+    [],
+  );
+
+  const handleRemoveRecognizedItem = useCallback((id: string) => {
+    setRecognizedItems(prev => {
+      const target = prev.find(it => it.id === id);
+      if (target?.previewUrl) {
+        URL.revokeObjectURL(target.previewUrl);
+        previewUrlsRef.current.delete(target.previewUrl);
+      }
+      return prev.filter(it => it.id !== id);
+    });
+  }, []);
+
+  const handleToggleSelectAllValid = useCallback((checked: boolean) => {
+    setRecognizedItems(prev =>
+      prev.map(item =>
+        isDraftEmailValid(item.email) ? { ...item, selected: checked } : item,
+      ),
+    );
+  }, []);
+
+  const openSendModal = (mode: InviteModalMode = 'manual') => {
     setModalError(null);
+    setInviteMode(mode);
     if (jobId && openJobs.some(j => String(j.id) === jobId)) {
       setInviteJobId(jobId);
     } else if (!inviteJobId && openJobs[0]) {
@@ -194,24 +359,53 @@ export default function InvitationListPage() {
       setModalError('请先选择招聘中的岗位');
       return;
     }
-    if (parsedEmailTokens.length === 0) {
-      setModalError('请至少填写一个候选人邮箱');
-      return;
+    if (inviteMode === 'manual') {
+      if (parsedEmailTokens.length === 0) {
+        setModalError('请至少填写一个候选人邮箱');
+        return;
+      }
+    } else {
+      if (recognizedItems.length === 0) {
+        setModalError('请先上传简历图片进行自动识别');
+        return;
+      }
+      if (selectedValidRecipients.length === 0) {
+        setModalError('请至少勾选一位具有正确邮箱地址的候选人（缺失邮箱可在表格中手动补填）');
+        return;
+      }
     }
+
     setSending(true);
     setModalError(null);
     try {
-      const res = await invitationApi.send({
-        jobId: Number(inviteJobId),
-        emailsText,
-        candidateName: parsedEmailTokens.length === 1 && candidateName.trim() ? candidateName.trim() : undefined,
-        expireDays,
-        skipScreening,
-        note: note.trim() || undefined,
-      });
+      const res = await invitationApi.send(
+        inviteMode === 'manual'
+          ? {
+              jobId: Number(inviteJobId),
+              emailsText,
+              candidateName:
+                parsedEmailTokens.length === 1 && candidateName.trim()
+                  ? candidateName.trim()
+                  : undefined,
+              expireDays,
+              skipScreening,
+              note: note.trim() || undefined,
+            }
+          : {
+              jobId: Number(inviteJobId),
+              recipients: selectedValidRecipients,
+              expireDays,
+              skipScreening,
+              note: note.trim() || undefined,
+            },
+      );
       setModalOpen(false);
-      setEmailsText('');
-      setCandidateName('');
+      if (inviteMode === 'manual') {
+        setEmailsText('');
+        setCandidateName('');
+      } else {
+        clearRecognizedItems();
+      }
       setNote('');
       const parts: string[] = [];
       if (res.createdCount > 0) parts.push(`新增邀请 ${res.createdCount} 人`);
@@ -273,7 +467,7 @@ export default function InvitationListPage() {
         <div>
           <h1 className="text-2xl font-bold text-slate-900 dark:text-white">面试邀请管理</h1>
           <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-            直接填写邮箱向面试者投递邀请邮件，实时查看每位候选人是否参加面试（非受邀邮箱不允许投递简历与进入面试）
+            支持直接填写邮箱或批量上传简历图片自动识别姓名与邮箱发送邀请，实时查看候选人是否参加面试（非受邀邮箱不允许投递简历与进入面试）
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -286,15 +480,26 @@ export default function InvitationListPage() {
             刷新状态
           </button>
           {canWrite && (
-            <button
-              type="button"
-              data-testid="open-send-invite-btn"
-              onClick={openSendModal}
-              className="btn-primary flex items-center gap-2 rounded-xl px-5 py-2 text-sm font-medium"
-            >
-              <Send className="h-4 w-4" />
-              发送面试邀请
-            </button>
+            <>
+              <button
+                type="button"
+                data-testid="open-image-invite-btn"
+                onClick={() => openSendModal('image')}
+                className="btn-secondary flex items-center gap-2 rounded-xl border-primary-200 bg-primary-50/70 px-4 py-2 text-sm font-medium text-primary-700 hover:bg-primary-100 dark:border-primary-800 dark:bg-primary-900/30 dark:text-primary-300 dark:hover:bg-primary-900/50"
+              >
+                <ImagePlus className="h-4 w-4" />
+                批量传图识别邀请
+              </button>
+              <button
+                type="button"
+                data-testid="open-send-invite-btn"
+                onClick={() => openSendModal('manual')}
+                className="btn-primary flex items-center gap-2 rounded-xl px-5 py-2 text-sm font-medium"
+              >
+                <Send className="h-4 w-4" />
+                发送面试邀请
+              </button>
+            </>
           )}
         </div>
       </div>
@@ -436,13 +641,23 @@ export default function InvitationListPage() {
             <Mail className="h-10 w-10 text-slate-300 dark:text-slate-600" />
             <p className="text-sm text-slate-500 dark:text-slate-400">暂无匹配的面试邀请记录</p>
             {canWrite && (
-              <button
-                type="button"
-                onClick={openSendModal}
-                className="btn-primary rounded-xl px-5 py-2 text-sm"
-              >
-                发送第一封面试邀请
-              </button>
+              <div className="flex flex-wrap justify-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => openSendModal('manual')}
+                  className="btn-primary rounded-xl px-5 py-2 text-sm"
+                >
+                  发送第一封面试邀请
+                </button>
+                <button
+                  type="button"
+                  onClick={() => openSendModal('image')}
+                  className="btn-secondary flex items-center gap-1.5 rounded-xl px-4 py-2 text-sm"
+                >
+                  <ImagePlus className="h-4 w-4" />
+                  批量上传简历图片识别邀请
+                </button>
+              </div>
             )}
           </div>
         ) : (
@@ -647,19 +862,22 @@ export default function InvitationListPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
           <div
             data-testid="send-invite-modal"
-            className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl dark:bg-slate-800"
+            className={`max-h-[92vh] w-full overflow-y-auto rounded-2xl bg-white p-6 shadow-2xl transition-all dark:bg-slate-800 ${
+              inviteMode === 'image' ? 'max-w-4xl' : 'max-w-lg'
+            }`}
           >
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between gap-4">
               <div>
                 <h2 className="text-lg font-bold text-slate-900 dark:text-white">发送面试邀请邮件</h2>
                 <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-                  填写候选人邮箱后系统将直接发送面试邀请邮件至对方邮箱，并授予该邮箱对应岗位投递与面试权限
+                  支持手动输入邮箱或批量上传简历图片自动识别姓名、邮箱地址与所在地后一键发送邀请邮件
                 </p>
               </div>
               <button
                 type="button"
+                disabled={sending || recognizing}
                 onClick={() => setModalOpen(false)}
-                className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-700"
+                className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 disabled:opacity-40 dark:hover:bg-slate-700"
               >
                 <X className="h-5 w-5" />
               </button>
@@ -675,68 +893,74 @@ export default function InvitationListPage() {
                 </div>
               </div>
             ) : (
-              <form onSubmit={handleSendInvitations} className="mt-5 space-y-4">
+              <form onSubmit={handleSendInvitations} className="mt-4 space-y-4">
+                {/* 邀请方式切换标签页 */}
+                <div className="grid grid-cols-2 gap-1.5 rounded-xl bg-slate-100 p-1 dark:bg-slate-900/80">
+                  <button
+                    type="button"
+                    data-testid="invite-tab-manual"
+                    disabled={sending || recognizing}
+                    onClick={() => {
+                      setInviteMode('manual');
+                      setModalError(null);
+                    }}
+                    className={`flex items-center justify-center gap-1.5 rounded-lg py-2 text-xs font-semibold transition-all ${
+                      inviteMode === 'manual'
+                        ? 'bg-white text-primary-600 shadow-sm dark:bg-slate-800 dark:text-primary-400'
+                        : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200'
+                    }`}
+                  >
+                    <Mail className="h-3.5 w-3.5" />
+                    手动填写邮箱
+                  </button>
+                  <button
+                    type="button"
+                    data-testid="invite-tab-image"
+                    disabled={sending || recognizing}
+                    onClick={() => {
+                      setInviteMode('image');
+                      setModalError(null);
+                    }}
+                    className={`flex items-center justify-center gap-1.5 rounded-lg py-2 text-xs font-semibold transition-all ${
+                      inviteMode === 'image'
+                        ? 'bg-white text-primary-600 shadow-sm dark:bg-slate-800 dark:text-primary-400'
+                        : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200'
+                    }`}
+                  >
+                    <ImagePlus className="h-3.5 w-3.5" />
+                    批量上传简历图片识别
+                    {recognizedItems.length > 0 && (
+                      <span className="rounded-full bg-primary-100 px-1.5 py-0.2 text-[10px] font-bold text-primary-700 dark:bg-primary-900/50 dark:text-primary-300">
+                        {selectedValidRecipients.length}/{recognizedItems.length}
+                      </span>
+                    )}
+                  </button>
+                </div>
+
                 {modalError && (
                   <div className="rounded-xl bg-red-50 px-3.5 py-2.5 text-xs text-red-600 dark:bg-red-900/20 dark:text-red-400">
                     {modalError}
                   </div>
                 )}
 
-                <div>
-                  <label className="mb-1 block text-xs font-medium text-slate-700 dark:text-slate-300">
-                    邀请应聘岗位 *
-                  </label>
-                  <select
-                    data-testid="invite-job-select"
-                    required
-                    value={inviteJobId}
-                    onChange={e => setInviteJobId(e.target.value)}
-                    className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-sm text-slate-900 focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-white"
-                  >
-                    {openJobs.map(j => (
-                      <option key={j.id} value={j.id}>
-                        {j.title}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <div className="mb-1 flex items-center justify-between">
-                    <label className="text-xs font-medium text-slate-700 dark:text-slate-300">
-                      面试者邮箱 *（支持批量填写，每行一个或用逗号分隔）
-                    </label>
-                    {parsedEmailTokens.length > 0 && (
-                      <span className="text-xs font-medium text-primary-600 dark:text-primary-400">
-                        已识别 {parsedEmailTokens.length} 个邮箱
-                      </span>
-                    )}
-                  </div>
-                  <textarea
-                    data-testid="invite-emails-input"
-                    required
-                    rows={4}
-                    value={emailsText}
-                    onChange={e => setEmailsText(e.target.value)}
-                    placeholder={'candidate1@example.com\ncandidate2@example.com'}
-                    className="w-full rounded-xl border border-slate-200 bg-white p-3 text-sm text-slate-900 focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-white"
-                  />
-                </div>
-
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <div>
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <div className="sm:col-span-2">
                     <label className="mb-1 block text-xs font-medium text-slate-700 dark:text-slate-300">
-                      候选人姓名（单人邀请选填）
+                      邀请应聘岗位 *
                     </label>
-                    <input
-                      data-testid="invite-candidate-name"
-                      maxLength={64}
-                      disabled={parsedEmailTokens.length > 1}
-                      value={candidateName}
-                      onChange={e => setCandidateName(e.target.value)}
-                      placeholder={parsedEmailTokens.length > 1 ? '批量邀请时自动使用邮箱称呼' : '用于邮件称呼，如：张同学'}
-                      className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:border-primary-500 focus:outline-none disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-white"
-                    />
+                    <select
+                      data-testid="invite-job-select"
+                      required
+                      value={inviteJobId}
+                      onChange={e => setInviteJobId(e.target.value)}
+                      className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-sm text-slate-900 focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-white"
+                    >
+                      {openJobs.map(j => (
+                        <option key={j.id} value={j.id}>
+                          {j.title}
+                        </option>
+                      ))}
+                    </select>
                   </div>
                   <div>
                     <label className="mb-1 block text-xs font-medium text-slate-700 dark:text-slate-300">
@@ -753,6 +977,60 @@ export default function InvitationListPage() {
                     />
                   </div>
                 </div>
+
+                {inviteMode === 'manual' ? (
+                  <>
+                    <div>
+                      <div className="mb-1 flex items-center justify-between">
+                        <label className="text-xs font-medium text-slate-700 dark:text-slate-300">
+                          面试者邮箱 *（支持批量填写，每行一个或用逗号分隔）
+                        </label>
+                        {parsedEmailTokens.length > 0 && (
+                          <span className="text-xs font-medium text-primary-600 dark:text-primary-400">
+                            已识别 {parsedEmailTokens.length} 个邮箱
+                          </span>
+                        )}
+                      </div>
+                      <textarea
+                        data-testid="invite-emails-input"
+                        required
+                        rows={4}
+                        value={emailsText}
+                        onChange={e => setEmailsText(e.target.value)}
+                        placeholder={'candidate1@example.com\ncandidate2@example.com'}
+                        className="w-full rounded-xl border border-slate-200 bg-white p-3 text-sm text-slate-900 focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-white"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="mb-1 block text-xs font-medium text-slate-700 dark:text-slate-300">
+                        候选人姓名（单人邀请选填）
+                      </label>
+                      <input
+                        data-testid="invite-candidate-name"
+                        maxLength={64}
+                        disabled={parsedEmailTokens.length > 1}
+                        value={candidateName}
+                        onChange={e => setCandidateName(e.target.value)}
+                        placeholder={parsedEmailTokens.length > 1 ? '批量邀请时自动使用邮箱称呼' : '用于邮件称呼，如：张同学'}
+                        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:border-primary-500 focus:outline-none disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-white"
+                      />
+                    </div>
+                  </>
+                ) : (
+                  <BatchResumeImageInvitePanel
+                    items={recognizedItems}
+                    recognizing={recognizing}
+                    recognizeProgress={recognizeProgress}
+                    maxImages={MAX_BATCH_IMAGES}
+                    disabled={sending}
+                    onUploadFiles={files => void handleUploadResumeImages(files)}
+                    onUpdateItem={handleUpdateRecognizedItem}
+                    onRemoveItem={handleRemoveRecognizedItem}
+                    onClearAll={clearRecognizedItems}
+                    onToggleSelectAllValid={handleToggleSelectAllValid}
+                  />
+                )}
 
                 <label className="flex items-start gap-2 rounded-xl bg-slate-50 p-3 text-xs text-slate-700 dark:bg-slate-900/60 dark:text-slate-300">
                   <input
@@ -785,21 +1063,37 @@ export default function InvitationListPage() {
                 <div className="flex justify-end gap-3 pt-2">
                   <button
                     type="button"
-                    disabled={sending}
+                    disabled={sending || recognizing}
                     onClick={() => setModalOpen(false)}
                     className="btn-secondary rounded-xl px-4 py-2 text-sm"
                   >
                     取消
                   </button>
-                  <button
-                    type="submit"
-                    data-testid="confirm-send-invite-btn"
-                    disabled={sending}
-                    className="btn-primary flex items-center gap-2 rounded-xl px-5 py-2 text-sm font-medium disabled:opacity-60"
-                  >
-                    {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-                    {sending ? '正在发送邀请…' : '发送邀请邮件'}
-                  </button>
+                  {inviteMode === 'manual' ? (
+                    <button
+                      type="submit"
+                      data-testid="confirm-send-invite-btn"
+                      disabled={sending}
+                      className="btn-primary flex items-center gap-2 rounded-xl px-5 py-2 text-sm font-medium disabled:opacity-60"
+                    >
+                      {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                      {sending ? '正在发送邀请…' : '发送邀请邮件'}
+                    </button>
+                  ) : (
+                    <button
+                      type="submit"
+                      data-testid="confirm-send-image-invite-btn"
+                      disabled={sending || recognizing || selectedValidRecipients.length === 0}
+                      className="btn-primary flex items-center gap-2 rounded-xl px-5 py-2 text-sm font-medium disabled:opacity-60"
+                    >
+                      {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                      {sending
+                        ? '正在发送邀请…'
+                        : selectedValidRecipients.length > 0
+                          ? `向已选 ${selectedValidRecipients.length} 位候选人发送邀请`
+                          : '请先上传识别并勾选候选人'}
+                    </button>
+                  )}
                 </div>
               </form>
             )}

@@ -1,6 +1,7 @@
 import request from './request';
 import type {
   BatchInvitationResult,
+  BatchResumeImageExtractResult,
   CreateInvitationsRequest,
   InvitationListItem,
   InvitationParticipationFilter,
@@ -36,6 +37,12 @@ export const invitationApi = {
   stats(jobId?: number): Promise<InvitationStats> {
     const query = jobId !== undefined ? `?jobId=${jobId}` : '';
     return request.get(`/api/admin/invitations/stats${query}`);
+  },
+
+  parseResumeImages(files: File[]): Promise<BatchResumeImageExtractResult> {
+    const formData = new FormData();
+    files.forEach(file => formData.append('files', file));
+    return request.upload('/api/admin/invitations/parse-resume-images', formData);
   },
 
   send(payload: CreateInvitationsRequest): Promise<BatchInvitationResult> {
