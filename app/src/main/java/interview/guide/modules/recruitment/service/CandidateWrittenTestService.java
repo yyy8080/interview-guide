@@ -179,10 +179,6 @@ public class CandidateWrittenTestService {
     String effectiveTrack = interview.guide.modules.recruitment.model.CandidateTracks
         .safeNormalize(application.getCandidateTrack());
     Optional<WrittenTestEntity> found = writtenTestRepository.findByApplicationId(applicationId);
-    if (found.isPresent() && isOverdue(found.get())) {
-      submitAndGrade(found.get(), job.getLlmProvider());
-      found = writtenTestRepository.findByApplicationId(applicationId);
-    }
     String watermark = job.isProctorWatermark() ? CandidateInterviewService.watermarkText(application) : null;
     if (found.isEmpty()) {
       int planned = job.getWrittenSingleCount() + job.getWrittenMultiCount() + job.getWrittenFillCount();
@@ -206,28 +202,24 @@ public class CandidateWrittenTestService {
 
   // ========== 作答 ==========
 
-  /** 自动保存作答（覆盖式） */
+  /** 自动保存作答（覆盖式，仅保存草稿，绝不自动交卷；交卷必须由候选人点击提交按钮触发） */
   public void saveAnswers(Long candidateId, Long applicationId, WrittenAnswersRequest request) {
     ApplicationEntity application = requireOwned(candidateId, applicationId);
     invitationService.assertCanAccessInterview(application);
     WrittenTestEntity test = requireInProgress(applicationId);
-    if (isOverdue(test)) {
-      submitAndGrade(test, llmProviderOf(applicationId));
-      throw new BusinessException(ErrorCode.WRITTEN_TEST_NOT_AVAILABLE, "笔试时间已结束，系统已自动交卷");
-    }
     List<WrittenQuestion> questions = codec.readQuestions(test.getQuestionsJson());
     writtenTestRepository.saveAnswersIfInProgress(test.getId(),
         codec.write(sanitizeAnswers(questions, request.answers())), LocalDateTime.now());
   }
 
-  /** 交卷：先保存最后一次作答（截止时间宽限内），再判分；重复交卷幂等 */
+  /** 交卷：仅在候选人主动点击提交按钮并确认后调用，先保存最新作答再判分；重复交卷幂等 */
   public CandidateWrittenTestDTO submit(Long candidateId, Long applicationId, WrittenAnswersRequest request) {
     ApplicationEntity application = requireOwned(candidateId, applicationId);
     invitationService.assertCanAccessInterview(application);
     WrittenTestEntity test = writtenTestRepository.findByApplicationId(applicationId)
         .orElseThrow(() -> new BusinessException(ErrorCode.WRITTEN_TEST_NOT_AVAILABLE, "尚未开始笔试"));
     if (test.getStatus() == WrittenTestStatus.IN_PROGRESS) {
-      if (request != null && request.answers() != null && !isOverdue(test)) {
+      if (request != null && request.answers() != null) {
         List<WrittenQuestion> questions = codec.readQuestions(test.getQuestionsJson());
         writtenTestRepository.saveAnswersIfInProgress(test.getId(),
             codec.write(sanitizeAnswers(questions, request.answers())), LocalDateTime.now());
@@ -237,14 +229,7 @@ public class CandidateWrittenTestService {
     return getState(candidateId, applicationId);
   }
 
-  // ========== 调度 / 决策调用 ==========
-
-  /** 超时未交卷的笔试自动交卷并判分（调度调用） */
-  public void autoSubmitOverdue(Long applicationId) {
-    writtenTestRepository.findByApplicationId(applicationId)
-        .filter(this::isOverdue)
-        .ifPresent(test -> submitAndGrade(test, llmProviderOf(applicationId)));
-  }
+  // ========== 决策兜底调用 ==========
 
   /**
    * 确保笔试已判分（AI 决策前调用）：作答中则先交卷，已交卷未判分则补判分
@@ -335,11 +320,6 @@ public class CandidateWrittenTestService {
       }
     }
     return result;
-  }
-
-  private boolean isOverdue(WrittenTestEntity test) {
-    return test.getStatus() == WrittenTestStatus.IN_PROGRESS
-        && LocalDateTime.now().isAfter(test.getDeadlineAt().plus(SUBMIT_GRACE));
   }
 
   private WrittenTestEntity requireInProgress(Long applicationId) {

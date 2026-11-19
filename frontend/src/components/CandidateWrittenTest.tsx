@@ -107,7 +107,6 @@ export default function CandidateWrittenTest({
   const answersRef = useRef(answers);
   answersRef.current = answers;
   const saveTimerRef = useRef<number | null>(null);
-  const autoSubmittedRef = useRef(false);
 
   const applyTestState = useCallback(
     (data: CandidateWrittenTestState) => {
@@ -176,30 +175,27 @@ export default function CandidateWrittenTest({
     [applicationId],
   );
 
-  const handleSubmit = useCallback(
-    async (silent = false) => {
-      if (submitting) return;
-      if (saveTimerRef.current != null) {
-        window.clearTimeout(saveTimerRef.current);
-        saveTimerRef.current = null;
-      }
-      setSubmitting(true);
-      if (!silent) setError(null);
-      try {
-        await candidateApi.submitWrittenTest(applicationId, answersRef.current);
-        setConfirmOpen(false);
-        onActiveChange(false);
-        onCompleted();
-      } catch (err) {
-        setError(getErrorMessage(err));
-      } finally {
-        setSubmitting(false);
-      }
-    },
-    [applicationId, onActiveChange, onCompleted, submitting],
-  );
+  const handleSubmit = useCallback(async () => {
+    if (submitting) return;
+    if (saveTimerRef.current != null) {
+      window.clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
+    setSubmitting(true);
+    setError(null);
+    try {
+      await candidateApi.submitWrittenTest(applicationId, answersRef.current);
+      setConfirmOpen(false);
+      onActiveChange(false);
+      onCompleted();
+    } catch (err) {
+      setError(getErrorMessage(err));
+    } finally {
+      setSubmitting(false);
+    }
+  }, [applicationId, onActiveChange, onCompleted, submitting]);
 
-  // 倒计时，归零时自动交卷
+  // 参考倒计时（归零后仅提示，绝不自动交卷；只能通过点击「提交笔试」按钮并确认后交卷）
   useEffect(() => {
     if (remaining == null || remaining <= 0 || test?.status !== 'IN_PROGRESS') {
       return;
@@ -207,18 +203,11 @@ export default function CandidateWrittenTest({
     const timer = window.setInterval(() => {
       setRemaining(prev => {
         if (prev == null) return null;
-        if (prev <= 1) {
-          if (!autoSubmittedRef.current) {
-            autoSubmittedRef.current = true;
-            void handleSubmit(true);
-          }
-          return 0;
-        }
-        return prev - 1;
+        return prev <= 1 ? 0 : prev - 1;
       });
     }, 1000);
     return () => window.clearInterval(timer);
-  }, [remaining, test?.status, handleSubmit]);
+  }, [remaining, test?.status]);
 
   const handleStart = async () => {
     setConfirmStartOpen(false);
@@ -299,7 +288,7 @@ export default function CandidateWrittenTest({
                 {jobTitle} · 在线笔试
               </h1>
               <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                预计 {count} 道客观与填空题 · 限时 {timeLimitMinutes} 分钟 · 交卷后进入 AI 面试
+                预计 {count} 道客观与填空题 · 参考时长 {timeLimitMinutes} 分钟 · 交卷后进入 AI 面试
               </p>
             </div>
           </div>
@@ -356,7 +345,7 @@ export default function CandidateWrittenTest({
             </div>
             <ul className="list-disc space-y-1 pl-5">
               <li>包含单选题、多选题（全对得分，少选或错选不得分）与单空填空题，作答进度自动保存。</li>
-              <li>点击「开始在线笔试」后由 AI 按您投递时所选技术方向与当前定位实时生成试卷并开始倒计时，到时自动交卷。</li>
+              <li>点击「开始在线笔试」后由 AI 按您投递时所选技术方向与当前定位实时生成试卷；<strong>笔试仅在您点击「提交笔试」按钮并在确认框二次确认后才会交卷（系统不会自动交卷）</strong>。</li>
               <li>无需开启摄像头或全屏；请本人独立作答。</li>
             </ul>
           </div>
@@ -382,7 +371,7 @@ export default function CandidateWrittenTest({
           open={confirmStartOpen}
           title="开始在线笔试前确认"
           message={
-            '请确认已知晓并遵守以下作答规范：\n1. 答题时禁止搜题、切屏查资料或粘贴外部答案，后台会有提交审查；\n2. 请勿乱提交简历（提交简历仅有两次机会），简历不允许造假，否则会直接不通过。\n\n确认现在生成试卷并开始倒计时答题吗？'
+            '请确认已知晓并遵守以下作答规范：\n1. 答题时禁止搜题、切屏查资料或粘贴外部答案，后台会有提交审查；\n2. 请勿乱提交简历（提交简历仅有两次机会），简历不允许造假，否则会直接不通过；\n3. 笔试作答完成后需手动点击「提交笔试」按钮并确认交卷。\n\n确认现在生成试卷并开始答题吗？'
           }
           confirmText="我已知晓，开始答题"
           confirmVariant="warning"
@@ -395,7 +384,7 @@ export default function CandidateWrittenTest({
         <AiWaitingOverlay
           open={starting}
           title="AI 正在为您生成专属笔试题"
-          description="将结合岗位要求、投递时所选前后端方向与定位出题，题目生成后才开始倒计时，等待时间不计入作答时长。"
+          description="将结合岗位要求、投递时所选前后端方向与定位出题，题目生成后才开始计时，等待时间不计入作答时长。"
           estimate="通常需要 20–60 秒"
           tips={QUESTION_GENERATION_TIPS}
           testId="written-generating-overlay"
@@ -441,6 +430,7 @@ export default function CandidateWrittenTest({
           <div className="flex shrink-0 items-center gap-2 sm:gap-3">
             {remaining != null && (
               <span
+                data-testid="written-timer"
                 className={`flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold tabular-nums sm:px-3 ${
                   remaining < 180
                     ? 'bg-rose-50 text-rose-600 dark:bg-rose-900/30 dark:text-rose-300'
@@ -448,20 +438,14 @@ export default function CandidateWrittenTest({
                 }`}
               >
                 <Clock className="h-3.5 w-3.5" />
-                {formatSeconds(remaining)}
+                {remaining === 0 ? '00:00 · 请点击提交' : formatSeconds(remaining)}
               </span>
             )}
             <button
               type="button"
               data-testid="submit-written-btn"
               disabled={submitting}
-              onClick={() => {
-                if (unansweredCount > 0) {
-                  setConfirmOpen(true);
-                } else {
-                  void handleSubmit(false);
-                }
-              }}
+              onClick={() => setConfirmOpen(true)}
               className="btn-primary flex items-center gap-1.5 whitespace-nowrap rounded-xl px-3 py-2 text-xs font-medium disabled:opacity-60 sm:px-4"
             >
               {submitting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
@@ -525,6 +509,11 @@ export default function CandidateWrittenTest({
                   maxLength={200}
                   value={current[0] ?? ''}
                   onFocus={() => onActiveChange(true, q.index)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                    }
+                  }}
                   onChange={e => updateAnswer(q.index, e.target.value ? [e.target.value] : [])}
                   onPaste={e => {
                     const rawText = e.clipboardData?.getData('text') ?? '';
@@ -591,14 +580,41 @@ export default function CandidateWrittenTest({
         })}
       </div>
 
+      <div className="dark-card flex flex-col items-stretch justify-between gap-3 p-4 sm:flex-row sm:items-center sm:p-5">
+        <div className="text-xs leading-relaxed text-slate-600 dark:text-slate-300">
+          <span className="font-semibold text-slate-800 dark:text-slate-100">
+            已作答 {answeredCount} / {test.questions.length} 题
+          </span>
+          {unansweredCount > 0 ? `（还有 ${unansweredCount} 题未作答）` : '（全部题目已作答）'}
+          {' · '}系统不会自动交卷，请检查无误后点击右侧按钮提交笔试。
+        </div>
+        <button
+          type="button"
+          data-testid="submit-written-bottom-btn"
+          disabled={submitting}
+          onClick={() => setConfirmOpen(true)}
+          className="btn-primary flex items-center justify-center gap-2 whitespace-nowrap rounded-xl px-5 py-2.5 text-sm font-medium disabled:opacity-60"
+        >
+          {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+          提交笔试
+        </button>
+      </div>
+
       <ConfirmDialog
         open={confirmOpen}
-        title="确认提交笔试"
-        message={`还有 ${unansweredCount} 道题目尚未作答，提交后不可修改并将进入 AI 面试环节。确定现在交卷吗？`}
-        confirmText="确认交卷"
+        title="确认提交笔试？"
+        message={
+          unansweredCount > 0
+            ? `当前已作答 ${answeredCount} / ${test.questions.length} 题，还有 ${unansweredCount} 道题目尚未作答。\n\n笔试提交后将无法返回修改答案，并立即判分进入 AI 面试环节。为避免误提交，请确认是否现在提交笔试？`
+            : `当前已完成全部 ${test.questions.length} 道题目作答。\n\n笔试提交后将无法返回修改答案，并立即判分进入 AI 面试环节。为避免误提交，请确认已检查无误并现在提交笔试？`
+        }
+        confirmText="确认提交"
+        cancelText="返回检查"
         confirmVariant="warning"
+        confirmTestId="confirm-submit-written-btn"
+        cancelTestId="cancel-submit-written-btn"
         loading={submitting}
-        onConfirm={() => void handleSubmit(false)}
+        onConfirm={() => void handleSubmit()}
         onCancel={() => setConfirmOpen(false)}
       />
 

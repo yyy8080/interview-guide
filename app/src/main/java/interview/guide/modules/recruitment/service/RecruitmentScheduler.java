@@ -6,7 +6,6 @@ import interview.guide.modules.recruitment.model.ApplicationEntity;
 import interview.guide.modules.recruitment.model.ApplicationStatus;
 import interview.guide.modules.recruitment.model.ApplicationTaskType;
 import interview.guide.modules.recruitment.repository.ApplicationRepository;
-import interview.guide.modules.recruitment.repository.WrittenTestRepository;
 import interview.guide.modules.recruitment.service.InterviewResultReader.EvaluationState;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -19,7 +18,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 /**
- * 招聘流程调度：邀请过期、笔试 / 面试作答超时自动交卷、语音会话结束兜底、卡住的初筛 / 决策任务恢复
+ * 招聘流程调度：邀请过期、面试作答超时自动交卷、语音会话结束兜底、卡住的初筛 / 决策任务恢复
  */
 @Slf4j
 @Component
@@ -27,15 +26,13 @@ import org.springframework.stereotype.Component;
 public class RecruitmentScheduler {
 
   private final ApplicationRepository applicationRepository;
-  private final WrittenTestRepository writtenTestRepository;
   private final ApplicationWorkflowService workflowService;
   private final CandidateInterviewService interviewService;
-  private final CandidateWrittenTestService writtenTestService;
   private final InterviewResultReader resultReader;
   private final ApplicationTaskProducer taskProducer;
   private final RecruitmentProperties properties;
 
-  /** 笔试超时交卷、邀请过期、面试超时、语音会话已结束 */
+  /** 邀请过期、面试超时、语音会话已结束（在线笔试仅允许候选人手动点击提交按钮确认交卷，不自动交卷） */
   @Scheduled(fixedDelayString = "${app.recruitment.lifecycle-interval-ms:60000}",
       initialDelayString = "${app.recruitment.lifecycle-initial-delay-ms:30000}")
   public void advanceLifecycle() {
@@ -44,8 +41,6 @@ public class RecruitmentScheduler {
     }
     LocalDateTime now = LocalDateTime.now();
     PageRequest batch = PageRequest.of(0, properties.getTask().getBatchSize());
-    each(writtenTestRepository.findOverdueApplicationIds(now.minus(CandidateWrittenTestService.SUBMIT_GRACE), batch),
-        writtenTestService::autoSubmitOverdue, "笔试超时交卷");
     each(applicationRepository.findExpiredInvitationIds(now, batch), workflowService::expireInvitation,
         "邀请过期处理");
     each(applicationRepository.findOverdueInterviewIds(now, batch), interviewService::autoFinishOverdue,

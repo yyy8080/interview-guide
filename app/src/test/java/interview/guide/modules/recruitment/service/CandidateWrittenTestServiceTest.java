@@ -300,4 +300,79 @@ class CandidateWrittenTestServiceTest {
         org.mockito.ArgumentMatchers.isNull(),
         org.mockito.ArgumentMatchers.isNull());
   }
+
+  @Test
+  @DisplayName("笔试即使超过参考时长也不自动交卷，查询状态与自动保存继续保留草稿，仅调用 submit 时交卷判分")
+  void doesNotAutoSubmitWhenOverdueUntilCandidateExplicitlySubmits() {
+    ApplicationEntity app = new ApplicationEntity();
+    app.setId(230L);
+    app.setCandidateId(10L);
+    app.setJobId(33L);
+    app.setCandidateName("王五");
+    app.setStatus(ApplicationStatus.INTERVIEW_INVITED);
+    app.setInviteExpiresAt(LocalDateTime.now().plusDays(1));
+
+    JobPositionEntity job = new JobPositionEntity();
+    job.setId(33L);
+    job.setWrittenTestEnabled(true);
+    job.setWrittenTimeLimitMinutes(15);
+
+    List<WrittenQuestion> questions = List.of(
+        new WrittenQuestion(0, WrittenQuestionType.SINGLE_CHOICE, "HTTP 200 表示？",
+            List.of("重定向", "请求成功", "服务器错误"), List.of("B"), "", "网络")
+    );
+
+    WrittenTestEntity overdueTest = new WrittenTestEntity();
+    overdueTest.setId(530L);
+    overdueTest.setApplicationId(230L);
+    overdueTest.setStatus(WrittenTestStatus.IN_PROGRESS);
+    overdueTest.setQuestionsJson(codec.write(questions));
+    overdueTest.setAnswersJson(codec.write(Map.of()));
+    overdueTest.setTotalCount(1);
+    overdueTest.setStartedAt(LocalDateTime.now().minusMinutes(25));
+    overdueTest.setDeadlineAt(LocalDateTime.now().minusMinutes(10));
+
+    when(applicationRepository.findByIdAndCandidateId(230L, 10L)).thenReturn(Optional.of(app));
+    when(jobPositionService.getEntity(33L)).thenReturn(job);
+    when(writtenTestRepository.findByApplicationId(230L)).thenReturn(Optional.of(overdueTest));
+    when(writtenTestRepository.saveAnswersIfInProgress(anyLong(), any(), any())).thenAnswer(inv -> {
+      overdueTest.setAnswersJson(inv.getArgument(1));
+      return 1;
+    });
+
+    // 1. 超过参考时长后查询笔试状态：仍保持 IN_PROGRESS，不自动交卷
+    CandidateWrittenTestDTO stateAfterDeadline = service.getState(10L, 230L);
+    assertThat(stateAfterDeadline.status()).isEqualTo(WrittenTestStatus.IN_PROGRESS);
+    assertThat(stateAfterDeadline.remainingSeconds()).isZero();
+    assertThat(stateAfterDeadline.questions()).hasSize(1);
+    org.mockito.Mockito.verify(writtenTestRepository, org.mockito.Mockito.never()).markSubmitted(anyLong(), any());
+
+    // 2. 超过参考时长后继续自动保存草稿：正常保存，不抛异常也不自动交卷
+    service.saveAnswers(10L, 230L, new WrittenAnswersRequest(Map.of(0, List.of("A"))));
+    assertThat(overdueTest.getStatus()).isEqualTo(WrittenTestStatus.IN_PROGRESS);
+    assertThat(codec.readAnswers(overdueTest.getAnswersJson()).get(0)).containsExactly("A");
+    org.mockito.Mockito.verify(writtenTestRepository, org.mockito.Mockito.never()).markSubmitted(anyLong(), any());
+
+    // 3. 候选人主动点击提交按钮确认交卷：正常更新最终答案并完成判分
+    when(applicationRepository.findById(230L)).thenReturn(Optional.of(app));
+    when(writtenTestRepository.findById(530L)).thenReturn(Optional.of(overdueTest));
+    when(writtenTestRepository.markSubmitted(anyLong(), any())).thenAnswer(inv -> {
+      overdueTest.setStatus(WrittenTestStatus.SUBMITTED);
+      overdueTest.setSubmittedAt(inv.getArgument(1));
+      return 1;
+    });
+    doAnswer(inv -> {
+      ((Runnable) inv.getArgument(0)).run();
+      return null;
+    }).when(transactionalExecutor).run(any());
+    when(grader.grade(any(), any(), any())).thenReturn(new WrittenTestGrader.GradeResult(
+        List.of(new WrittenQuestionResult(0, true, List.of("B"), WrittenQuestionResult.RULE, null)), 100, 1));
+
+    CandidateWrittenTestDTO submitted = service.submit(10L, 230L,
+        new WrittenAnswersRequest(Map.of(0, List.of("B"))));
+    assertThat(submitted.status()).isEqualTo(WrittenTestStatus.GRADED);
+    assertThat(codec.readAnswers(overdueTest.getAnswersJson()).get(0)).containsExactly("B");
+    assertThat(app.getWrittenScore()).isEqualTo(100);
+  }
 }
+

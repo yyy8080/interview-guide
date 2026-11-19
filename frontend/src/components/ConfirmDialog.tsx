@@ -13,6 +13,7 @@ export interface ConfirmDialogProps {
   customContent?: React.ReactNode;
   hideButtons?: boolean;
   confirmTestId?: string;
+  cancelTestId?: string;
 }
 
 export default function ConfirmDialog({
@@ -28,6 +29,7 @@ export default function ConfirmDialog({
   customContent,
   hideButtons = false,
   confirmTestId,
+  cancelTestId,
 }: ConfirmDialogProps) {
   if (!open) return null;
 
@@ -46,7 +48,11 @@ export default function ConfirmDialog({
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            onClick={onCancel}
+            onClick={() => {
+              if (!loading) {
+                onCancel();
+              }
+            }}
             className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50"
           />
 
@@ -78,6 +84,8 @@ export default function ConfirmDialog({
               {!hideButtons && (
                 <div className="flex gap-3 justify-end">
                   <motion.button
+                    type="button"
+                    data-testid={cancelTestId}
                     onClick={onCancel}
                     disabled={loading}
                     className="px-5 py-2.5 border border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 rounded-xl font-medium hover:bg-slate-50 dark:hover:bg-slate-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
@@ -87,6 +95,7 @@ export default function ConfirmDialog({
                     {cancelText}
                   </motion.button>
                   <motion.button
+                    type="button"
                     data-testid={confirmTestId}
                     onClick={onConfirm}
                     disabled={loading}

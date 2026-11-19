@@ -671,7 +671,7 @@ test.describe('企业招聘全流程（候选人门户 + HR 后台审核与邮�
         answers: {},
         startedAt: '2026-11-18T09:05:00',
         deadlineAt: '2026-11-18T09:20:00',
-        remainingSeconds: 900,
+        remainingSeconds: 1,
         watermarkText: '李华 · #602',
         proctorAwayReminder: true,
       });
@@ -679,7 +679,9 @@ test.describe('企业招聘全流程（候选人门户 + HR 后台审核与邮�
 
     await page.route('**/api/candidate/applications/602/written-test/answers', route => ok(route, null));
 
+    let submitCount = 0;
     await page.route('**/api/candidate/applications/602/written-test/submit', async route => {
+      submitCount += 1;
       const body = route.request().postDataJSON() as { answers: Record<string, string[]> };
       submittedAnswers = body.answers;
       writtenStatus = 'GRADED';
@@ -708,7 +710,7 @@ test.describe('企业招聘全流程（候选人门户 + HR 后台审核与邮�
     await expect(page.getByTestId('written-anti-cheat-warning')).toContainText('后台会有提交审查');
     await page.getByTestId('written-level-junior').click();
 
-    // 2. 开始笔试（二次确认知晓禁搜题与提交审查），依次作答单选、多选与填空题并交卷
+    // 2. 开始笔试（二次确认知晓禁搜题与提交审查），依次作答单选、多选与填空题
     await page.getByTestId('start-written-btn').click();
     await page.getByTestId('confirm-start-written-btn').click();
     await expect(page.getByTestId('written-active-panel')).toBeVisible();
@@ -717,7 +719,26 @@ test.describe('企业招聘全流程（候选人门户 + HR 后台审核与邮�
     await page.getByTestId('written-opt-1-A').click();
     await page.getByTestId('written-opt-1-C').click();
     await page.getByTestId('written-fill-2').fill('TCP 6379');
+
+    // 按回车键或倒计时归零均绝不自动提交，必须手动点击提交按钮并二次确认
+    await page.getByTestId('written-fill-2').press('Enter');
+    await expect(page.getByTestId('written-timer')).toContainText('00:00 · 请点击提交');
+    expect(submitCount).toBe(0);
+    await expect(page.getByTestId('written-active-panel')).toBeVisible();
+
+    // 点击「提交笔试」弹出防误触确认提示，点击「返回检查」不会提交
     await page.getByTestId('submit-written-btn').click();
+    await expect(page.getByRole('heading', { name: '确认提交笔试？' })).toBeVisible();
+    await expect(page.getByText('当前已完成全部 3 道题目作答')).toBeVisible();
+    expect(submitCount).toBe(0);
+    await page.getByTestId('cancel-submit-written-btn').click();
+    await expect(page.getByRole('heading', { name: '确认提交笔试？' })).toHaveCount(0);
+    expect(submitCount).toBe(0);
+
+    // 再次点击提交笔试按钮并在弹窗中点击「确认提交」才真正交卷
+    await page.getByTestId('submit-written-bottom-btn').click();
+    await page.getByTestId('confirm-submit-written-btn').click();
+    expect(submitCount).toBe(1);
 
     expect(submittedAnswers).toEqual({
       '0': ['B'],
@@ -1507,6 +1528,7 @@ test.describe('企业招聘全流程（候选人门户 + HR 后台审核与邮�
     }, '粘贴自搜索结果：Shell 脚本释放锁');
     await fillInput.fill('Shell 脚本');
     await page.getByTestId('submit-written-btn').click();
+    await page.getByTestId('confirm-submit-written-btn').click();
 
     // 3. 进入 AI 面试准备页：自动回显已填 AI 经验与个人特长，可继续补充后开考
     await expect(page.getByTestId('written-finished-banner')).toBeVisible();
@@ -1921,6 +1943,7 @@ test.describe('企业招聘全流程（候选人门户 + HR 后台审核与邮�
     await expect(page.getByTestId('written-active-track')).toContainText('方向：偏向前端');
     await page.getByTestId('written-opt-0-B').click();
     await page.getByTestId('submit-written-btn').click();
+    await page.getByTestId('confirm-submit-written-btn').click();
 
     // 4. 笔试交卷进入 AI 面试：同样只读展示「出题方向：偏向前端（投递时已选定）」，无需重复选择
     await expect(page.getByTestId('written-finished-banner')).toBeVisible();
